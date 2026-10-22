@@ -1,5 +1,5 @@
 // Flat Split service worker: push notifications + light offline caching.
-const CACHE = "flat-split-v2";
+const CACHE = "flat-split-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
@@ -16,6 +16,8 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  // Never cache during local development (dev file names don't change when their code does).
+  if (["localhost", "127.0.0.1"].includes(self.location.hostname)) return;
 
   // Hashed build assets & icons never change: cache-first.
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {

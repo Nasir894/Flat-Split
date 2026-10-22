@@ -34,6 +34,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
+    if (process.env.NODE_ENV !== "production") {
+      // In dev, file names stay the same while their contents change, so a caching service worker
+      // would keep serving stale code. Remove any left over from a production run and its caches.
+      navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
+      if ("caches" in window) caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+      return;
+    }
     navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch(() => {});
     // A push arrived (someone changed something): refresh what's on screen.
     const onMsg = (e: MessageEvent) => {
