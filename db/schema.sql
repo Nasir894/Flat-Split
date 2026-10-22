@@ -202,3 +202,20 @@ create table if not exists chat_messages (
   deleted_at timestamptz
 );
 create index if not exists chat_messages_created on chat_messages (id desc);
+
+-- Chat reactions: one emoji per member per message (tap again to remove, another emoji to change).
+alter table chat_messages add column if not exists updated_at timestamptz not null default now();
+create index if not exists chat_messages_updated on chat_messages (updated_at);
+create table if not exists chat_reactions (
+  message_id bigint not null references chat_messages(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
+  emoji text not null,
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
+
+-- "… is typing": last keystroke time per member (ephemeral).
+create table if not exists chat_typing (
+  user_id uuid primary key references users(id) on delete cascade,
+  at timestamptz not null default now()
+);

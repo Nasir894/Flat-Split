@@ -4,24 +4,43 @@ import { query } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
 import { notifyOthers } from "@/lib/server/push";
+import { MESSAGE_COLS } from "@/lib/server/chat";
 
-const COLS = `id::int as id, user_id as "userId", case when deleted_at is null then body else '' end as body,
-              created_at as "createdAt", (deleted_at is not null) as deleted`;
 
-// Messages, oldest → newest. ?after=<id> returns only newer ones (polling); ?before=<id> pages back.
+/**
+ * Messages, oldest → newest.
+ *  - no params: latest 50
+ *  - ?before=<id>: older page
+ *  - ?after=<id>&since=<iso>: polling — new messages, messages whose reactions/deletion changed
+ *    since the last poll, and who is typing right now.
+ */
 export const GET = route(async (req) => {
-  await requireUser();
+  const me = await requireUser();
   const url = new URL(req.url);
   const afterId = Number(url.searchParams.get("after")) || null;
   const beforeId = Number(url.searchParams.get("before")) || null;
+  const since = url.searchParams.get("since");
+
   if (afterId) {
-    return { items: await query(`select ${COLS} from chat_messages where id > $1 order by id limit 200`, [afterId]), hasMore: false };
+    const sinceIso = since && !Number.isNaN(Date.parse(since)) ? since : new Date(Date.now() - 10_000).toISOString();
+    const [items, changed, typing, [{ now }]] = await Promise.all([
+      query(`select ${MESSAGE_COLS} from chat_messages m where m.id > $1 order by m.id limit 200`, [afterId]),
+      query(`select ${MESSAGE_COLS} from chat_messages m where m.id <= $1 and m.updated_at > $2 order by m.id`, [afterId, sinceIso]),
+      query<{ userId: string }>(
+        `select user_id as "userId" from chat_typing where at > now() - interval '6 seconds' and user_id <> $1`,
+        [me],
+      ),
+      query<{ now: string }>("select now() as now"),
+    ]);
+    return { items, changed, typing: typing.map((t) => t.userId), now };
   }
+
   const rows = await query(
-    `select ${COLS} from chat_messages where ($1::int is null or id < $1) order by id desc limit 51`,
+    `select ${MESSAGE_COLS} from chat_messages m where ($1::int is null or m.id < $1) order by m.id desc limit 51`,
     [beforeId],
   );
-  return { items: rows.slice(0, 50).reverse(), hasMore: rows.length > 50 };
+  const [{ now }] = await query<{ now: string }>("select now() as now");
+  return { items: rows.slice(0, 50).reverse(), hasMore: rows.length > 50, now };
 });
 
 // Text and emoji only: no attachments, no HTML (rendered as plain text), control characters stripped.
@@ -40,7 +59,13 @@ export const POST = route(async (req) => {
     [userId],
   );
   if (n >= 20) throw new HttpError(429, "Slow down a little 🙂");
-  const [msg] = await query(`insert into chat_messages (user_id, body) values ($1, $2) returning ${COLS}`, [userId, d.body]);
+  const [inserted] = await query<{ id: number }>("insert into chat_messages (user_id, body) values ($1, $2) returning id::int as id", [
+    userId,
+    d.body,
+  ]);
+  // Sending a message ends "typing…".
+  await query("delete from chat_typing where user_id = $1", [userId]);
+  const [msg] = await query(`select ${MESSAGE_COLS} from chat_messages m where m.id = $1`, [inserted.id]);
   const [u] = await query<{ name: string }>("select name from users where id = $1", [userId]);
   after(() =>
     notifyOthers(userId, {

@@ -18,10 +18,20 @@ export type PushPayload = { title: string; body: string; url?: string; tag?: str
 /** Sends a push to every subscribed device except the actor's own. */
 export async function notifyOthers(actorId: string, payload: PushPayload) {
   if (!configure()) return;
-  const subs = await query<{ endpoint: string; p256dh: string; auth: string }>(
-    "select endpoint, p256dh, auth from push_subscriptions where user_id <> $1",
-    [actorId],
-  );
+  const subs = await query<Sub>("select endpoint, p256dh, auth from push_subscriptions where user_id <> $1", [actorId]);
+  await sendAll(subs, payload);
+}
+
+/** Sends a push only to the given members' devices (e.g. the author of a message someone reacted to). */
+export async function notifyUsers(userIds: string[], payload: PushPayload) {
+  if (!configure() || !userIds.length) return;
+  const subs = await query<Sub>("select endpoint, p256dh, auth from push_subscriptions where user_id = any($1::uuid[])", [userIds]);
+  await sendAll(subs, payload);
+}
+
+type Sub = { endpoint: string; p256dh: string; auth: string };
+
+async function sendAll(subs: Sub[], payload: PushPayload) {
   const body = JSON.stringify(payload);
   await Promise.all(
     subs.map(async (s) => {

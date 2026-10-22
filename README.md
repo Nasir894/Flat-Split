@@ -11,7 +11,7 @@ Track shared flat spending, transfers between flatmates and rice turns. Next.js 
 
 ## House chat
 
-A simple group chat for members: text and emoji only, with no photos, videos or files. Members can delete their own messages. Everyone gets a push notification for new messages.
+A simple group chat for members: text and emoji only, with no photos, videos or files. Tap a message to react (👍 ❤️ 😂 😮 😢 🙏 🔥 🎉; one reaction per person; double-tap for ❤️). You see when someone is typing. Members can delete their own messages. Everyone gets a push notification for new messages, and authors are notified of reactions.
 
 ## Rice rules
 

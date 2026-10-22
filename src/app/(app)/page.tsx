@@ -56,36 +56,36 @@ export default function HomePage() {
       <JoinRequests />
 
       {/* Hero */}
-      <section className="aurex-hero rise overflow-hidden rounded-[1.75rem] p-5 shadow-xl">
+      <section className="rise px-1 pt-2 pb-1">
         <div className="flex items-start justify-between gap-3">
-          <p className="hero-muted text-sm">{mine === 0 ? "You're all settled" : mine > 0 ? "You get back" : "You owe the flat"}</p>
-          <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium backdrop-blur">
+          <p className="text-sm text-foreground/65">{mine === 0 ? "You're all settled" : mine > 0 ? "You get back" : "You owe the flat"}</p>
+          <span className="glass rounded-full px-3 py-1 text-xs font-medium">
             {mine > 0 ? "Credit" : mine < 0 ? "Due" : "Settled"}
           </span>
         </div>
-        <Amount poisha={Math.abs(mine)} className="mt-1 block text-[2.6rem] leading-tight font-bold" />
+        <Amount poisha={Math.abs(mine)} className="mt-1 block text-[2.9rem] leading-tight font-bold" />
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link href="/rice" className="aurex-tile flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
-            <span className="flex size-9 items-center justify-center rounded-full bg-white/10 text-lg">🍚</span>
+          <Link href="/rice" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
+            <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">🍚</span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">Rice</span>
-              <span className="hero-muted block truncate text-[11px]">
+              <span className="block truncate text-[11px] text-foreground/60">
                 {myRice ? (myRice.owed > 0 ? `Give ${myRice.owed}×` : "Up to date") : "—"}
               </span>
             </span>
-            <ChevronRight className="hero-muted size-4" />
+            <ChevronRight className="size-4 text-foreground/50" />
           </Link>
-          <Link href="/transfers" className="aurex-tile flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
+          <Link href="/transfers" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
             <span className="flex size-9 items-center justify-center rounded-full bg-brand text-brand-foreground">
               <Clock className="size-4" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">Pending</span>
-              <span className="hero-muted block truncate text-[11px]">
+              <span className="block truncate text-[11px] text-foreground/60">
                 {awaiting.length ? `${awaiting.length} to confirm` : "Nothing waiting"}
               </span>
             </span>
-            <ChevronRight className="hero-muted size-4" />
+            <ChevronRight className="size-4 text-foreground/50" />
           </Link>
         </div>
       </section>

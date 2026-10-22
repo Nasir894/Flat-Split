@@ -169,26 +169,26 @@ export default function AnalyticsPage() {
       ) : (
         <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-70")}>
           {/* Headline */}
-          <Card className="aurex-hero rise overflow-hidden rounded-[1.75rem] shadow-xl">
-            <CardContent className="space-y-3">
+          <Card className="rise border-0 bg-transparent py-2 shadow-none ring-0">
+            <CardContent className="space-y-3 px-1">
               <div>
-                <p className="text-sm text-white/80">
+                <p className="text-sm text-foreground/65">
                   {category === ALL ? "Total spent" : `Spent on ${catById.get(category)?.name ?? "category"}`} ·{" "}
                   {preset === "custom"
                     ? `${format(from, "d MMM")} – ${format(subDays(to, 1), "d MMM")}`
                     : presetInfo.label.toLowerCase()}
                 </p>
-                <Amount poisha={total} className="block text-[2.6rem] leading-tight font-bold" />
+                <Amount poisha={total} className="block text-[2.9rem] leading-tight font-bold" />
                 {change !== null ? (
-                  <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-xs">
+                  <p className="glass mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs">
                     {change >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
                     {Math.abs(change).toFixed(0)}% {change >= 0 ? "more" : "less"} than {presetInfo.prev}
                   </p>
                 ) : (
-                  <p className="mt-1 text-xs text-white/70">Nothing spent in {presetInfo.prev} to compare with</p>
+                  <p className="mt-1 text-xs text-foreground/60">Nothing spent in {presetInfo.prev} to compare with</p>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2 border-t border-white/20 pt-3 text-center">
+              <div className="glass grid grid-cols-3 gap-2 rounded-2xl py-3 text-center">
                 <Stat label="Per day" value={formatTaka(average)} />
                 <Stat label="Expenses" value={String(data?.totals?.count ?? 0)} />
                 <Stat label="Days with spending" value={`${data?.totals?.activeDays ?? 0}/${days}`} />
@@ -294,7 +294,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-base font-semibold tabular">{value}</p>
-      <p className="text-[11px] text-white/75">{label}</p>
+      <p className="text-[11px] text-foreground/60">{label}</p>
     </div>
   );
 }

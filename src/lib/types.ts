@@ -86,4 +86,11 @@ export type Analytics = {
   /** Same-length period right before this one. */
   previous: { total: number; count: number };
 };
-export type ChatMessage = { id: number; userId: string; body: string; createdAt: string; deleted: boolean };
+export type ChatMessage = {
+  id: number;
+  userId: string;
+  body: string;
+  createdAt: string;
+  deleted: boolean;
+  reactions: { emoji: string; userId: string }[];
+};
