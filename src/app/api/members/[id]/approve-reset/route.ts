@@ -25,6 +25,7 @@ export const POST = route<Ctx>(async (_req, ctx) => {
       action: "update",
       actorId,
       actorName,
+      title: `🔑 PIN reset approved for ${u.name}`,
       summary: `🔑 ${actorName} approved a PIN reset for ${u.name} (valid 24h)`,
     });
     return { ok: true };

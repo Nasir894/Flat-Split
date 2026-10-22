@@ -122,6 +122,19 @@ create table if not exists push_subscriptions (
   created_at timestamptz not null default now()
 );
 
+-- Fingerprint / face sign-in (WebAuthn passkeys). Only public keys are stored; biometrics never leave the phone.
+create table if not exists passkeys (
+  id text primary key,                 -- credential id (base64url)
+  user_id uuid not null references users(id) on delete cascade,
+  public_key text not null,            -- COSE public key (base64url)
+  counter bigint not null default 0,
+  transports text[] not null default '{}',
+  device text not null default '',
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz
+);
+create index if not exists passkeys_user on passkeys (user_id);
+
 -- Failed house-code attempts per client, for rate limiting sign-ups.
 create table if not exists auth_failures (
   key text not null,

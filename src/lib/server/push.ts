@@ -13,7 +13,7 @@ function configure() {
   return true;
 }
 
-export type PushPayload = { title: string; body: string; url?: string; tag?: string };
+export type PushPayload = { title: string; body: string; url?: string; tag?: string; kind?: string; entity?: string };
 
 /** Sends a push to every subscribed device except the actor's own. */
 export async function notifyOthers(actorId: string, payload: PushPayload) {

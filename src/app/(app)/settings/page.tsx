@@ -13,6 +13,7 @@ import { CACHE_KEY } from "@/components/providers";
 import { PushToggle, currentSubscription } from "@/components/push-toggle";
 import { MemberAvatar } from "@/components/member-avatar";
 import { RecoveryCodeDialog } from "@/components/recovery-code-dialog";
+import { BiometricCard } from "@/components/biometric-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -167,6 +168,8 @@ export default function SettingsPage() {
       </Card>
 
       <CategoriesCard categories={categories} />
+
+      <BiometricCard />
 
       <HouseCodeCard />
 

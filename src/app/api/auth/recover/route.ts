@@ -70,6 +70,7 @@ export const POST = route(async (req) => {
       action: "update",
       actorId: userId,
       actorName: u.name,
+      title: `🔑 ${u.name} reset their PIN`,
       summary: `🔑 ${u.name} reset their PIN (${method})`,
     });
     // Recovery codes are single-use: issue a fresh one.

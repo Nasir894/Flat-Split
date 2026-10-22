@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { markUnlocked } from "@/components/app-lock";
+import { BiometricButton } from "@/components/biometric-button";
+import { biometricEnabledHere } from "@/lib/biometric";
 
 type MembersResponse = {
   meId: string | null;
@@ -52,6 +54,7 @@ export default function LoginPage() {
   // A freshly issued recovery code, and what to do once the user has saved it.
   const [recovery, setRecovery] = useState<{ code: string; then: "enter" | "wait" } | null>(null);
   const [justRequested, setJustRequested] = useState<string | null>(null);
+  const [bioHere, setBioHere] = useState(false);
 
   const waitingFor = justRequested ?? data?.pending?.name ?? null;
   const mode = !data?.houseExists ? "create" : waitingFor && !recovery ? "waiting" : chosenMode;
@@ -63,7 +66,13 @@ export default function LoginPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (last) setName(last);
     } catch {}
+    setBioHere(biometricEnabledHere());
   }, []);
+
+  const bioLogin = async (who: { name: string }) => {
+    rememberName(who.name);
+    await enter();
+  };
 
   useEffect(() => {
     // Already signed in on this device (and not in the middle of showing a recovery code).
@@ -147,6 +156,11 @@ export default function LoginPage() {
         <div className="rise flex flex-col items-center gap-4">
           <MemberAvatar name={name} color="#14b8a6" className="size-14 text-lg" />
           <p className="font-medium">Hi {name}, enter your PIN</p>
+          {bioHere && (
+            <div className="w-full">
+              <BiometricButton purpose="login" autoStart onSuccess={bioLogin} onError={setError} />
+            </div>
+          )}
           <PinPad onComplete={login} busy={busy} error={error} />
           <div className="flex gap-2">
             <Button
@@ -166,7 +180,11 @@ export default function LoginPage() {
           </div>
         </div>
       ) : (
-        <NameStep onNext={(n) => (setError(null), setName(n))} onJoin={() => setMode("join")} />
+        <div className="w-full space-y-4">
+          {bioHere && <BiometricButton purpose="login" onSuccess={bioLogin} onError={setError} />}
+          {error && !name && <p className="text-center text-sm text-negative">{error}</p>}
+          <NameStep onNext={(n) => (setError(null), setName(n))} onJoin={() => setMode("join")} />
+        </div>
       )}
 
       <RecoveryCodeDialog

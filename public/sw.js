@@ -1,5 +1,5 @@
 // Flat Split service worker: push notifications + light offline caching.
-const CACHE = "flat-split-v3";
+const CACHE = "flat-split-v4";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
@@ -60,6 +60,15 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { title: "Flat Split", body: event.data ? event.data.text() : "" };
   }
+  // Each kind of change feels different: short buzz for new, double for edits, long for deletes.
+  const VIBRATE = {
+    create: [80],
+    update: [60, 50, 60],
+    delete: [220, 90, 220],
+    restore: [40, 40, 40],
+    import: [150, 60, 150, 60, 150],
+  };
+  const joinRequest = data.entity === "user" && data.kind === "create";
   event.waitUntil(
     Promise.all([
       self.registration.showNotification(data.title || "Flat Split", {
@@ -68,6 +77,10 @@ self.addEventListener("push", (event) => {
         badge: "/icons/96",
         tag: data.tag,
         renotify: Boolean(data.tag),
+        vibrate: joinRequest ? [100, 60, 100, 60, 300] : VIBRATE[data.kind] || [80],
+        // Join requests stay on screen until someone acts on them.
+        requireInteraction: joinRequest,
+        timestamp: Date.now(),
         data: { url: data.url || "/" },
       }),
       // Tell open app windows to refresh their data.

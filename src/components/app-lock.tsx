@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { PinPad } from "./pin-pad";
 import { MemberAvatar } from "./member-avatar";
+import { BiometricButton } from "./biometric-button";
+import { biometricEnabledHere } from "@/lib/biometric";
 import type { User } from "@/lib/types";
 
 const KEY = "fs_unlocked_at";
@@ -67,6 +69,20 @@ export function AppLock({ me, children }: { me?: User; children: React.ReactNode
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background px-4">
       {me && <MemberAvatar name={me.name} color={me.color} className="size-14 text-lg" />}
       <p className="font-medium">{me ? `Hi ${me.name}, enter your PIN` : "Enter your PIN"}</p>
+      {/* Rendered only after mount (locked !== null), so reading localStorage here is safe. */}
+      {biometricEnabledHere() && (
+        <div className="w-full max-w-xs">
+          <BiometricButton
+            purpose="unlock"
+            autoStart
+            onError={setError}
+            onSuccess={() => {
+              markUnlocked();
+              setLocked(false);
+            }}
+          />
+        </div>
+      )}
       <PinPad onComplete={unlock} busy={busy} error={error} />
     </div>
   );

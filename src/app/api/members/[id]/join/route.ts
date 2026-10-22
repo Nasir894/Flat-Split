@@ -27,7 +27,7 @@ export const POST = route<Ctx>(async (req, ctx) => {
         action: "update",
         actorId,
         actorName,
-        title: `${u.name} joined the house`,
+        title: `🏠 ${u.name} joined the house`,
         summary: `👋 ${actorName} added ${u.name} to the house`,
         after: { name: u.name, approvedBy: actorId },
       });
@@ -40,7 +40,7 @@ export const POST = route<Ctx>(async (req, ctx) => {
         action: "delete",
         actorId,
         actorName,
-        title: "Join request declined",
+        title: "🚫 Join request declined",
         summary: `${actorName} declined ${u.name}'s request to join`,
       });
     }

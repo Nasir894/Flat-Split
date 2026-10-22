@@ -31,6 +31,7 @@ export const POST = route(async (req) => {
       action: "update",
       actorId,
       actorName,
+      title: `🔐 ${actorName} changed the house code`,
       summary: `🔐 ${actorName} changed the house code`,
     });
     return { ok: true };
