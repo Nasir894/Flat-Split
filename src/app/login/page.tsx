@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Home, Hourglass, Loader2, UserPlus } from "lucide-react";
+import { ArrowLeft, ArrowRight, Home, Hourglass, Loader2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { PinPad } from "@/components/pin-pad";
 import { MemberAvatar } from "@/components/member-avatar";
@@ -14,14 +14,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { markUnlocked } from "@/components/app-lock";
 
-type Member = { id: string; name: string; color: string; needsPin: boolean; resetApproved: boolean };
 type MembersResponse = {
-  members: Member[];
   meId: string | null;
   houseExists: boolean;
   pending: { id: string; name: string } | null;
 };
 type SignupResult = { id: string; pending: boolean; recoveryCode: string };
+
+// The device remembers who signed in last, so next time it goes straight to the PIN pad.
+const LAST_NAME_KEY = "fs_last_name";
+const rememberName = (name: string) => {
+  try {
+    localStorage.setItem(LAST_NAME_KEY, name);
+  } catch {}
+};
+const forgetName = () => {
+  try {
+    localStorage.removeItem(LAST_NAME_KEY);
+  } catch {}
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,8 +44,9 @@ export default function LoginPage() {
     retry: 1,
     retryDelay: 300,
   });
-  const [picked, setPicked] = useState<Member | null>(null);
-  const [chosenMode, setMode] = useState<"pick" | "join" | "recover">("pick");
+  // `name` set = PIN step for that name; null = ask for the name.
+  const [name, setName] = useState<string | null>(null);
+  const [chosenMode, setMode] = useState<"signin" | "join" | "recover">("signin");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // A freshly issued recovery code, and what to do once the user has saved it.
@@ -43,6 +55,15 @@ export default function LoginPage() {
 
   const waitingFor = justRequested ?? data?.pending?.name ?? null;
   const mode = !data?.houseExists ? "create" : waitingFor && !recovery ? "waiting" : chosenMode;
+
+  useEffect(() => {
+    try {
+      const last = localStorage.getItem(LAST_NAME_KEY);
+      // localStorage is browser-only, so the remembered name is read after mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (last) setName(last);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     // Already signed in on this device (and not in the middle of showing a recovery code).
@@ -55,17 +76,19 @@ export default function LoginPage() {
     router.replace("/");
   };
 
-  const afterSignup = async (r: SignupResult, name: string) => {
-    if (r.pending) setJustRequested(name);
+  const afterSignup = async (r: SignupResult, newName: string) => {
+    rememberName(newName);
+    if (r.pending) setJustRequested(newName);
     setRecovery({ code: r.recoveryCode, then: r.pending ? "wait" : "enter" });
   };
 
   const login = async (pin: string) => {
-    if (!picked) return;
+    if (!name) return;
     setBusy(true);
     setError(null);
     try {
-      await api("/api/auth/login", { body: { userId: picked.id, pin } });
+      await api("/api/auth/login", { body: { name, pin } });
+      rememberName(name);
       await enter();
     } catch (e) {
       setError((e as Error).message);
@@ -75,7 +98,7 @@ export default function LoginPage() {
   };
 
   const back = () => {
-    setMode("pick");
+    setMode("signin");
     setError(null);
   };
 
@@ -111,49 +134,39 @@ export default function LoginPage() {
         />
       ) : mode === "join" ? (
         <SignupForm onDone={afterSignup} onBack={back} />
-      ) : mode === "recover" && picked ? (
-        <RecoverForm member={picked} onDone={async (code) => setRecovery({ code, then: "enter" })} onBack={back} />
-      ) : picked ? (
+      ) : mode === "recover" ? (
+        <RecoverForm
+          initialName={name ?? ""}
+          onDone={async (code, recoveredName) => {
+            rememberName(recoveredName);
+            setRecovery({ code, then: "enter" });
+          }}
+          onBack={back}
+        />
+      ) : name ? (
         <div className="rise flex flex-col items-center gap-4">
-          <button
-            className="flex items-center gap-2 text-sm text-muted-foreground"
-            onClick={() => {
-              setPicked(null);
-              setError(null);
-            }}
-          >
-            <ArrowLeft className="size-4" /> Not {picked.name}?
-          </button>
-          <MemberAvatar name={picked.name} color={picked.color} className="size-14 text-lg" />
-          <p className="font-medium">Enter your PIN</p>
+          <MemberAvatar name={name} color="#14b8a6" className="size-14 text-lg" />
+          <p className="font-medium">Hi {name}, enter your PIN</p>
           <PinPad onComplete={login} busy={busy} error={error} />
-          <Button variant="link" className="text-muted-foreground" onClick={() => (setError(null), setMode("recover"))}>
-            Forgot PIN?
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="link"
+              className="text-muted-foreground"
+              onClick={() => {
+                forgetName();
+                setName(null);
+                setError(null);
+              }}
+            >
+              Not {name}?
+            </Button>
+            <Button variant="link" className="text-muted-foreground" onClick={() => (setError(null), setMode("recover"))}>
+              Forgot PIN?
+            </Button>
+          </div>
         </div>
       ) : (
-        <div className="rise w-full space-y-4">
-          <p className="text-center text-sm font-medium">Who are you?</p>
-          <div className="grid grid-cols-3 gap-3">
-            {data.members.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  setPicked(m);
-                  // Restored from a backup without a PIN: go straight to setting one.
-                  if (m.needsPin) setMode("recover");
-                }}
-                className="flex flex-col items-center gap-2 rounded-xl border bg-card p-3 transition active:scale-95"
-              >
-                <MemberAvatar name={m.name} color={m.color} className="size-12" />
-                <span className="w-full truncate text-sm">{m.name}</span>
-              </button>
-            ))}
-          </div>
-          <Button variant="ghost" className="w-full" onClick={() => setMode("join")}>
-            <UserPlus /> New here? Ask to join
-          </Button>
-        </div>
+        <NameStep onNext={(n) => (setError(null), setName(n))} onJoin={() => setMode("join")} />
       )}
 
       <RecoveryCodeDialog
@@ -165,6 +178,39 @@ export default function LoginPage() {
         }}
       />
     </main>
+  );
+}
+
+function NameStep({ onNext, onJoin }: { onNext: (name: string) => void; onJoin: () => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <form
+      className="rise w-full space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) onNext(value.trim());
+      }}
+    >
+      <div className="space-y-2">
+        <Label htmlFor="signin-name">Your name</Label>
+        <Input
+          id="signin-name"
+          autoFocus
+          autoComplete="username"
+          autoCapitalize="words"
+          placeholder="The name you joined with"
+          value={value}
+          maxLength={40}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+      <Button type="submit" className="w-full" disabled={!value.trim()}>
+        Continue <ArrowRight />
+      </Button>
+      <Button type="button" variant="ghost" className="w-full" onClick={onJoin}>
+        <UserPlus /> New here? Ask to join
+      </Button>
+    </form>
   );
 }
 
@@ -365,16 +411,17 @@ function SignupForm({
 }
 
 function RecoverForm({
-  member,
+  initialName,
   onDone,
   onBack,
 }: {
-  member: Member;
-  onDone: (code: string) => Promise<void>;
+  initialName: string;
+  onDone: (code: string, name: string) => Promise<void>;
   onBack: () => void;
 }) {
-  // If a flatmate approved a reset, default to that path (the member likely lost their code too).
-  const [useApproval, setUseApproval] = useState(member.resetApproved);
+  const [name, setName] = useState(initialName);
+  // "code": my recovery code. "approved": a flatmate approved my reset; prove membership with the house code.
+  const [method, setMethod] = useState<"code" | "approved">("code");
   const [secret, setSecret] = useState("");
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
@@ -390,12 +437,12 @@ function RecoverForm({
     try {
       const r = await api<{ recoveryCode: string }>("/api/auth/recover", {
         body: {
-          userId: member.id,
+          name,
           newPin: pin,
-          ...(useApproval ? { houseCode: secret } : { recoveryCode: secret }),
+          ...(method === "approved" ? { houseCode: secret } : { recoveryCode: secret }),
         },
       });
-      await onDone(r.recoveryCode);
+      await onDone(r.recoveryCode, name.trim());
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -405,20 +452,31 @@ function RecoverForm({
 
   return (
     <form onSubmit={submit} className="rise w-full space-y-4">
-      <div className="flex flex-col items-center gap-2">
-        <MemberAvatar name={member.name} color={member.color} className="size-12" />
-        <p className="font-medium">Reset PIN for {member.name}</p>
+      <p className="text-center font-medium">Reset your PIN</p>
+      <div className="space-y-2">
+        <Label htmlFor="r-name">Your name</Label>
+        <Input id="r-name" autoComplete="username" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} required />
       </div>
 
-      {useApproval ? (
-        <div className="space-y-2">
-          <p className="rounded-lg bg-positive/10 p-2 text-sm text-positive">
-            A flatmate approved your PIN reset. Enter the house code to continue.
-          </p>
-          <Label htmlFor="secret">House code</Label>
-          <Input id="secret" autoComplete="off" autoCapitalize="none" value={secret} onChange={(e) => setSecret(e.target.value)} required />
-        </div>
-      ) : (
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 text-sm">
+        {(
+          [
+            ["code", "Recovery code"],
+            ["approved", "Flatmate approved"],
+          ] as const
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => (setMethod(m), setSecret(""), setError(null))}
+            className={method === m ? "rounded-md bg-background py-1.5 font-medium shadow-sm" : "py-1.5 text-muted-foreground"}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {method === "code" ? (
         <div className="space-y-2">
           <Label htmlFor="secret">Recovery code</Label>
           <Input
@@ -433,18 +491,15 @@ function RecoverForm({
           />
           <p className="text-xs text-muted-foreground">
             Lost it too? Ask any flatmate to open <b>Settings → Members</b> and tap <b>Approve PIN reset</b> for you,
-            then come back here.
+            then choose &ldquo;Flatmate approved&rdquo;.
           </p>
         </div>
-      )}
-      {member.resetApproved && (
-        <button
-          type="button"
-          className="text-xs text-primary"
-          onClick={() => (setUseApproval((u) => !u), setSecret(""))}
-        >
-          {useApproval ? "Use my recovery code instead" : "Use the approved reset instead"}
-        </button>
+      ) : (
+        <div className="space-y-2">
+          <Label htmlFor="secret">House code</Label>
+          <Input id="secret" autoComplete="off" autoCapitalize="none" value={secret} onChange={(e) => setSecret(e.target.value)} required />
+          <p className="text-xs text-muted-foreground">Works for 24 hours after a flatmate approves your reset.</p>
+        </div>
       )}
 
       <NewPinFields pin={pin} pin2={pin2} onPin={setPin} onPin2={setPin2} label="New PIN" />

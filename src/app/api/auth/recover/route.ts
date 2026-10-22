@@ -3,6 +3,7 @@ import { query, withTx } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
 import { hashPin, startSession, verifyPin } from "@/lib/server/auth";
 import { audit } from "@/lib/server/audit";
+import { memberIdByName } from "@/lib/server/members";
 import {
   assertNotLimited,
   clientKey,
@@ -14,7 +15,7 @@ import {
 } from "@/lib/server/pin";
 
 const body = z.object({
-  userId: z.uuid(),
+  name: z.string().trim().min(1, "Enter your name").max(40),
   newPin: pinSchema,
   recoveryCode: z.string().optional(),
   houseCode: z.string().optional(),
@@ -23,7 +24,8 @@ const body = z.object({
 // Forgot PIN: either the member's recovery code, or a reset another flatmate approved (+ house code).
 export const POST = route(async (req) => {
   const d = body.parse(await req.json());
-  const limitKey = `recover:${d.userId}:${clientKey(req)}`;
+  const userId = await memberIdByName(req, d.name);
+  const limitKey = `recover:${userId}:${clientKey(req)}`;
   await assertNotLimited(limitKey, 5);
 
   const [u] = await query<{
@@ -36,10 +38,9 @@ export const POST = route(async (req) => {
   }>(
     `select u.name, u.status, u.recovery_hash, u.reset_approved_by, u.reset_expires_at, a.name as approver
      from users u left join users a on a.id = u.reset_approved_by where u.id = $1`,
-    [d.userId],
+    [userId],
   );
   if (!u) throw new HttpError(404, "Unknown member");
-  if (u.status !== "active") throw new HttpError(403, "This join request is still waiting for approval.");
 
   let method: string;
   if (d.recoveryCode) {
@@ -61,19 +62,19 @@ export const POST = route(async (req) => {
     await q(
       `update users set pin_hash = $2, failed_attempts = 0, locked_until = null,
          reset_approved_by = null, reset_expires_at = null where id = $1`,
-      [d.userId, pinHash],
+      [userId, pinHash],
     );
     await audit(q, {
       entity: "user",
-      entityId: d.userId,
+      entityId: userId,
       action: "update",
-      actorId: d.userId,
+      actorId: userId,
       actorName: u.name,
       summary: `🔑 ${u.name} reset their PIN (${method})`,
     });
     // Recovery codes are single-use: issue a fresh one.
-    return rotateRecoveryCode(q, d.userId);
+    return rotateRecoveryCode(q, userId);
   });
-  await startSession(d.userId);
-  return { id: d.userId, recoveryCode };
+  await startSession(userId);
+  return { id: userId, recoveryCode };
 });
