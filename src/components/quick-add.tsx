@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState } from "react";
-import { ArrowLeftRight, Receipt, Wheat } from "lucide-react";
+import { ArrowLeftRight, Receipt, Repeat } from "lucide-react";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { ExpenseForm } from "./forms/expense-form";
 import { TransferForm } from "./forms/transfer-form";
@@ -13,10 +13,11 @@ const QuickAddContext = createContext<(kind?: Kind) => void>(() => {});
 /** Opens the add menu (no argument) or jumps straight to one form. Available on every app page. */
 export const useQuickAdd = () => useContext(QuickAddContext);
 
+// Order matters: Expense (the most common) sits in the middle.
 const OPTIONS = [
+  { kind: "rice", label: "Turn done", hint: "Rice, gas & other turns", icon: Repeat, tone: "from-yellow-300 to-lime-500" },
   { kind: "expense", label: "Expense", hint: "Something bought for the flat", icon: Receipt, tone: "from-orange-400 to-orange-700" },
   { kind: "transfer", label: "Transfer", hint: "Money handed to a flatmate", icon: ArrowLeftRight, tone: "from-sky-400 to-indigo-500" },
-  { kind: "rice", label: "Rice given", hint: "Your turn for the rice", icon: Wheat, tone: "from-yellow-300 to-lime-500" },
 ] as const;
 
 export function QuickAddProvider({ children }: { children: React.ReactNode }) {

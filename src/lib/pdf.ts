@@ -27,7 +27,16 @@ type Backup = {
     deletedAt: string | null;
     status?: "pending" | "approved" | "declined";
   }[];
-  riceEntries: { id: string; userId: string; givenAt: string; createdAt: string; note: string; deletedAt: string | null }[];
+  riceEntries: {
+    id: string;
+    userId: string;
+    givenAt: string;
+    createdAt: string;
+    note: string;
+    deletedAt: string | null;
+    trackerId?: string;
+  }[];
+  trackers?: { id: string; name: string; emoji: string; memberIds: string[] | null; isDefault: boolean; createdAt: string; deletedAt: string | null }[];
   auditLog: { action: string; actorId: string | null; summary: string; createdAt: string }[];
 };
 
@@ -88,19 +97,29 @@ export async function downloadPdf(b: Backup) {
     }),
   );
 
-  const rice = computeRice(
-    b.users.map((u) => ({ id: u.id, createdAt: u.createdAt })),
-    b.riceEntries.filter((r) => !r.deletedAt).map((r) => ({ id: r.id, userId: r.userId, givenAt: r.givenAt, createdAt: r.createdAt })),
-  );
-  section(`Rice - cycle ${rice.cycleNo}`);
-  table(
-    ["Member", "This cycle", "Owes (times)", "Skipped cycles", "Total given"],
-    b.users.map((u) => {
-      const s = rice.members[u.id];
-      return [u.name, s?.gaveThisCycle ? "Given" : "Pending", s?.owed ?? 0, s?.skips ?? 0, s?.totalGiven ?? 0];
-    }),
-  );
-
+  // One table per turn tracker (Rice + custom ones). Emoji aren't in the PDF font, so names only.
+  const RICE_ID = "00000000-0000-4000-8000-000000000001";
+  const trackers = (b.trackers ?? []).filter((t) => !t.deletedAt);
+  if (!trackers.length) trackers.push({ id: RICE_ID, name: "Rice", emoji: "", memberIds: null, isDefault: true, createdAt: "2000-01-01", deletedAt: null });
+  const trackerName = (id?: string) => trackers.find((t) => t.id === (id ?? RICE_ID))?.name ?? "Turn";
+  for (const t of trackers) {
+    const people = b.users.filter((u) => !t.memberIds || t.memberIds.includes(u.id));
+    const start = new Date(t.createdAt).getTime();
+    const st = computeRice(
+      people.map((u) => ({ id: u.id, createdAt: new Date(Math.max(new Date(u.createdAt).getTime(), start)).toISOString() })),
+      b.riceEntries
+        .filter((r) => !r.deletedAt && (r.trackerId ?? RICE_ID) === t.id)
+        .map((r) => ({ id: r.id, userId: r.userId, givenAt: r.givenAt, createdAt: r.createdAt })),
+    );
+    section(`${t.name} - cycle ${st.cycleNo}`);
+    table(
+      ["Member", "This cycle", "Owes (times)", "Skipped cycles", "Total done"],
+      people.map((u) => {
+        const s = st.members[u.id];
+        return [u.name, s?.gaveThisCycle ? "Done" : "Pending", s?.owed ?? 0, s?.skips ?? 0, s?.totalGiven ?? 0];
+      }),
+    );
+  }
   const exp = [...b.expenses].sort((a, c) => c.spentAt.localeCompare(a.spentAt));
   section(`Expenses (${live.length}, total ${tk(live.reduce((s, e) => s + e.amount, 0))})`);
   table(
@@ -134,10 +153,10 @@ export async function downloadPdf(b: Backup) {
 
   const re = [...b.riceEntries].sort((a, c) => c.givenAt.localeCompare(a.givenAt));
   if (re.length) {
-    section("Rice log");
+    section("Turns log");
     table(
-      ["Date", "Given by", "Note"],
-      re.map((r) => [d(r.givenAt), name(r.userId), (r.note || "-") + (r.deletedAt ? " [deleted]" : "")]),
+      ["Date", "Tracker", "Done by", "Note"],
+      re.map((r) => [d(r.givenAt), trackerName(r.trackerId), name(r.userId), (r.note || "-") + (r.deletedAt ? " [deleted]" : "")]),
       re.map((r) => Boolean(r.deletedAt)),
     );
   }

@@ -29,7 +29,10 @@ export const transferInput = z
   })
   .refine((t) => t.fromUserId !== t.toUserId, "Sender and receiver must be different");
 
+export const RICE_TRACKER_ID = "00000000-0000-4000-8000-000000000001";
+
 export const riceInput = z.object({
+  trackerId: z.uuid().default(RICE_TRACKER_ID),
   userId: z.uuid(),
   givenAt: when,
   note: z.string().trim().max(200).default(""),
@@ -56,7 +59,7 @@ export const TRANSFER_COLS = `
 export const RICE_COLS = `
   r.id, r.user_id as "userId", r.given_at as "givenAt", r.note, r.created_by as "createdBy",
   r.created_at as "createdAt", r.updated_by as "updatedBy", r.updated_at as "updatedAt",
-  r.deleted_by as "deletedBy", r.deleted_at as "deletedAt", r.version`;
+  r.deleted_by as "deletedBy", r.deleted_at as "deletedAt", r.version, r.tracker_id as "trackerId"`;
 
 const TABLES = {
   expense: { table: "expenses", alias: "e", cols: EXPENSE_COLS },
@@ -98,6 +101,16 @@ async function categoryLabel(q: Query, id: string | null) {
   return c ? `${c.emoji} ${c.name}` : "";
 }
 
+/** The tracker must exist, and the person must be one of its participants. */
+async function assertTracker(q: Query, trackerId: string, userId: string) {
+  const [t] = await q<{ member_ids: string[] | null }>(
+    "select member_ids from trackers where id = $1 and deleted_at is null",
+    [trackerId],
+  );
+  if (!t) throw new HttpError(400, "That tracker no longer exists");
+  if (t.member_ids && !t.member_ids.includes(userId)) throw new HttpError(400, "That person isn't part of this tracker");
+}
+
 async function assertUsers(q: Query, ids: string[]) {
   const unique = [...new Set(ids)];
   const [{ n }] = await q<{ n: number }>("select count(*)::int as n from users where id = any($1::uuid[]) and status = 'active'", [unique]);
@@ -122,7 +135,8 @@ async function describe(q: Query, kind: RecordKind, row: Record<string, unknown>
     }${status}`;
   }
   const n = await names(q, [row.userId as string]);
-  return `🍚 Rice given by ${n[row.userId as string]}`;
+  const [t] = await q<{ name: string; emoji: string }>("select name, emoji from trackers where id = $1", [row.trackerId]);
+  return `${t?.emoji ?? "🔁"} ${t?.name ?? "Turn"} done by ${n[row.userId as string]}`;
 }
 
 // ---------- writes ----------
@@ -154,10 +168,11 @@ export async function createRecord(kind: RecordKind, actorId: string, body: unkn
     } else {
       const d = riceInput.parse(body);
       await assertUsers(q, [d.userId]);
+      await assertTracker(q, d.trackerId, d.userId);
       [{ id }] = await q<{ id: string }>(
-        `insert into rice_entries (user_id, given_at, note, created_by)
-         values ($1, date_trunc('milliseconds', coalesce($2::timestamptz, now())), $3, $4) returning id`,
-        [d.userId, d.givenAt ?? null, d.note, actorId],
+        `insert into rice_entries (user_id, given_at, note, created_by, tracker_id)
+         values ($1, date_trunc('milliseconds', coalesce($2::timestamptz, now())), $3, $4, $5) returning id`,
+        [d.userId, d.givenAt ?? null, d.note, actorId, d.trackerId],
       );
     }
     const row = await snapshot(q, kind, id);
@@ -165,6 +180,10 @@ export async function createRecord(kind: RecordKind, actorId: string, body: unkn
     if (kind === "transfer" && row.status === "pending") {
       const n = await names(q, [row.fromUserId, row.toUserId]);
       title = `💸 ${n[row.fromUserId]} paid ${n[row.toUserId]} ${formatTaka(row.amount)}: ${n[row.toUserId]}, please confirm`;
+    } else if (kind === "rice") {
+      const n = await names(q, [row.userId]);
+      const [t] = await q<{ name: string; emoji: string }>("select name, emoji from trackers where id = $1", [row.trackerId]);
+      title = `${t?.emoji ?? "🔁"} ${n[row.userId]} did their turn: ${t?.name ?? "Turn"}`;
     }
     await audit(q, {
       entity: kind,
@@ -212,13 +231,14 @@ export async function updateRecord(kind: RecordKind, actorId: string, id: string
         [id, d.fromUserId, d.toUserId, d.amount, d.note, d.sentAt ?? null, actorId],
       );
     } else {
-      const d = riceInput.parse(body);
+      const d = riceInput.parse({ ...(body as object), trackerId: (body as { trackerId?: string }).trackerId ?? before.trackerId });
       await assertUsers(q, [d.userId]);
+      await assertTracker(q, d.trackerId, d.userId);
       await q(
         `update rice_entries set user_id = $2, given_at = date_trunc('milliseconds', coalesce($3::timestamptz, given_at)), note = $4,
-           updated_by = $5, updated_at = now(), version = version + 1
+           updated_by = $5, updated_at = now(), version = version + 1, tracker_id = $6
          where id = $1`,
-        [id, d.userId, d.givenAt ?? null, d.note, actorId],
+        [id, d.userId, d.givenAt ?? null, d.note, actorId, d.trackerId],
       );
     }
     const after = await snapshot(q, kind, id);
@@ -292,6 +312,11 @@ export async function listRecords(kind: RecordKind, url: URL) {
     const [at, id] = cursor.split("|");
     params.push(at, id);
     where.push(`(${col}, ${alias}.id) < ($1::timestamptz, $2::uuid)`);
+  }
+  const tracker = url.searchParams.get("tracker");
+  if (kind === "rice" && tracker) {
+    params.push(tracker);
+    where.push(`r.tracker_id = $${params.length}::uuid`);
   }
   if (kind === "expense" && category) {
     params.push(category);

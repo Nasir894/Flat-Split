@@ -8,7 +8,7 @@ import { audit, userName } from "./audit";
 // backup would be trivial to crack. Restored members who don't exist yet set a new PIN.
 
 export async function exportBackup() {
-  const [users, categories, expenses, expenseShares, transfers, riceEntries, auditLog] = await Promise.all([
+  const [users, categories, expenses, expenseShares, transfers, riceEntries, auditLog, trackers] = await Promise.all([
     query(`select id, name, color, created_at as "createdAt", approved_by as "addedBy", approved_at as "approvedAt"
            from users where status = 'active' order by created_at`),
     query(`select id, name, emoji, is_default as "isDefault", created_by as "createdBy", created_at as "createdAt",
@@ -25,10 +25,12 @@ export async function exportBackup() {
            from transfers order by sent_at`),
     query(`select id, user_id as "userId", given_at as "givenAt", note, created_by as "createdBy",
                   created_at as "createdAt", updated_by as "updatedBy", updated_at as "updatedAt",
-                  deleted_by as "deletedBy", deleted_at as "deletedAt", version
+                  deleted_by as "deletedBy", deleted_at as "deletedAt", version, tracker_id as "trackerId"
            from rice_entries order by given_at`),
     query(`select entity, entity_id as "entityId", action, actor_id as "actorId", summary, before, after,
                   created_at as "createdAt" from audit_log order by id`),
+    query(`select id, name, emoji, member_ids as "memberIds", is_default as "isDefault", created_by as "createdBy",
+                  created_at as "createdAt", deleted_by as "deletedBy", deleted_at as "deletedAt" from trackers order by created_at`),
   ]);
   return {
     app: "flat-split",
@@ -40,6 +42,7 @@ export async function exportBackup() {
     expenseShares,
     transfers,
     riceEntries,
+    trackers,
     auditLog,
   };
 }
@@ -102,7 +105,25 @@ const backupSchema = z.object({
       respondedAt: opt(ts),
     }),
   ),
-  riceEntries: z.array(z.object({ id, userId: id, givenAt: ts, note: z.string(), ...meta })),
+  riceEntries: z.array(
+    z.object({ id, userId: id, givenAt: ts, note: z.string(), ...meta, trackerId: id.default("00000000-0000-4000-8000-000000000001") }),
+  ),
+  // Older backups have no trackers: only the built-in Rice tracker existed.
+  trackers: z
+    .array(
+      z.object({
+        id,
+        name: z.string().min(1),
+        emoji: z.string(),
+        memberIds: z.array(id).nullish().transform((v) => v ?? null),
+        isDefault: z.boolean(),
+        createdBy: opt(id),
+        createdAt: ts,
+        deletedBy: opt(id),
+        deletedAt: opt(ts),
+      }),
+    )
+    .default([]),
   auditLog: z
     .array(
       z.object({
@@ -165,6 +186,7 @@ export async function importBackup(actorId: string, raw: unknown) {
     await q("delete from transfers");
     await q("delete from rice_entries");
     await q("delete from categories");
+    await q("delete from trackers where not is_default");
 
     const bulk = (sql: string, rows: unknown[]) => (rows.length ? q(sql, [JSON.stringify(rows)]) : Promise.resolve([]));
 
@@ -233,10 +255,27 @@ export async function importBackup(actorId: string, raw: unknown) {
       })),
     );
     await bulk(
+      `insert into trackers (id, name, emoji, member_ids, is_default, created_by, created_at, deleted_by, deleted_at)
+       select * from json_to_recordset($1::json) as x(id uuid, name text, emoji text, member_ids uuid[], is_default boolean,
+         created_by uuid, created_at timestamptz, deleted_by uuid, deleted_at timestamptz)
+       on conflict (id) do update set name = excluded.name, emoji = excluded.emoji`,
+      b.trackers.map((t) => ({
+        id: t.id,
+        name: t.name,
+        emoji: t.emoji,
+        member_ids: t.memberIds ? t.memberIds.map((x) => mu(x)) : null,
+        is_default: t.isDefault,
+        created_by: mu(t.createdBy),
+        created_at: t.createdAt,
+        deleted_by: mu(t.deletedBy),
+        deleted_at: t.deletedAt,
+      })),
+    );
+    await bulk(
       `insert into rice_entries (id, user_id, given_at, note, created_by, created_at,
-                                 updated_by, updated_at, deleted_by, deleted_at, version)
-       select * from json_to_recordset($1::json) as x(id uuid, user_id uuid, given_at timestamptz, note text, ${META_COLS})`,
-      b.riceEntries.map((r) => ({ id: r.id, user_id: mu(r.userId), given_at: r.givenAt, note: r.note, ...metaRow(r) })),
+                                 updated_by, updated_at, deleted_by, deleted_at, version, tracker_id)
+       select * from json_to_recordset($1::json) as x(id uuid, user_id uuid, given_at timestamptz, note text, ${META_COLS}, tracker_id uuid)`,
+      b.riceEntries.map((r) => ({ id: r.id, user_id: mu(r.userId), given_at: r.givenAt, note: r.note, ...metaRow(r), tracker_id: r.trackerId })),
     );
     // Merge history: add backup audit entries that aren't already in the log.
     await bulk(

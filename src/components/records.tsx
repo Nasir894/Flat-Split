@@ -128,7 +128,8 @@ const LABELS: Record<string, string> = {
   shares: "Split",
   fromUserId: "From",
   toUserId: "To",
-  userId: "Given by",
+  userId: "Done by",
+  trackerId: "Tracker",
   note: "Note",
   deletedAt: "Deleted",
 };

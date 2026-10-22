@@ -5,7 +5,7 @@ import { iso } from "./http";
 import { RICE_COLS, TRANSFER_COLS } from "./records";
 
 export async function getSummary(meId: string) {
-  const [users, pending, categories, balances, rice, awaitingMe, chat, activity] = await Promise.all([
+  const [users, pending, categories, balances, rice, awaitingMe, chat, activity, trackerRows] = await Promise.all([
     query(`select id, name, color, created_at as "createdAt", (pin_hash is null) as "needsPin",
             coalesce(reset_expires_at > now(), false) as "resetApproved",
             approved_by as "addedBy", coalesce(approved_at, created_at) as "joinedAt",
@@ -41,13 +41,32 @@ export async function getSummary(meId: string) {
     query(`select id::int as id, user_id as "userId", created_at as "createdAt" from chat_messages order by id desc limit 1`),
     // Latest activity-log entry, for the bell dot.
     query(`select id::int as id, actor_id as "userId" from audit_log order by id desc limit 1`),
+    query<{ id: string; name: string; emoji: string; memberIds: string[] | null; isDefault: boolean; createdAt: Date }>(
+      `select id, name, emoji, member_ids as "memberIds", is_default as "isDefault", created_at as "createdAt"
+       from trackers where deleted_at is null order by is_default desc, created_at`,
+    ),
   ]);
 
-  const riceStatus = computeRice(
-    // Rice duty starts when a member actually joined (was approved).
-    users.map((u) => ({ id: u.id, createdAt: iso(u.joinedAt)! })),
-    rice.map((r) => ({ id: r.id, userId: r.userId, givenAt: iso(r.givenAt)!, createdAt: iso(r.createdAt)! })),
-  );
-
-  return { meId, users, pending, categories, balances, rice: riceStatus, awaitingMe, lastChat: chat[0] ?? null, lastActivity: activity[0] ?? null };
+  // Every turn tracker (Rice + custom ones) gets its own cycle status, replayed from its entries.
+  const trackers = trackerRows.map((t) => {
+    const participants = users.filter((u) => !t.memberIds || t.memberIds.includes(u.id));
+    const trackerStart = new Date(t.createdAt).getTime();
+    return {
+      id: t.id,
+      name: t.name,
+      emoji: t.emoji,
+      isDefault: t.isDefault,
+      memberIds: participants.map((u) => u.id),
+      everyone: !t.memberIds,
+      status: computeRice(
+        // Duty starts when the member joined or when the tracker was created, whichever is later.
+        participants.map((u) => ({ id: u.id, createdAt: new Date(Math.max(new Date(u.joinedAt).getTime(), trackerStart)).toISOString() })),
+        rice
+          .filter((r) => r.trackerId === t.id)
+          .map((r) => ({ id: r.id, userId: r.userId, givenAt: iso(r.givenAt)!, createdAt: iso(r.createdAt)! })),
+      ),
+    };
+  });
+  const riceStatus = trackers.find((t) => t.isDefault)?.status ?? computeRice([], []);
+  return { meId, users, pending, categories, balances, rice: riceStatus, awaitingMe, lastChat: chat[0] ?? null, lastActivity: activity[0] ?? null, trackers };
 }

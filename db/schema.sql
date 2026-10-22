@@ -219,3 +219,23 @@ create table if not exists chat_typing (
   user_id uuid primary key references users(id) on delete cascade,
   at timestamptz not null default now()
 );
+
+-- Custom "turn" trackers (cyclic duties). Rice is the built-in first one; members can add more
+-- (gas cylinder, trash, cleaning…). member_ids null = everyone in the house takes part.
+create table if not exists trackers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  emoji text not null default '🔁',
+  member_ids uuid[],
+  is_default boolean not null default false,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  deleted_by uuid references users(id),
+  deleted_at timestamptz
+);
+insert into trackers (id, name, emoji, is_default, created_at)
+values ('00000000-0000-4000-8000-000000000001', 'Rice', '🍚', true, '2000-01-01')
+on conflict (id) do nothing;
+alter table rice_entries add column if not exists tracker_id uuid not null
+  default '00000000-0000-4000-8000-000000000001' references trackers(id);
+create index if not exists rice_entries_tracker on rice_entries (tracker_id, given_at);

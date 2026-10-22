@@ -20,7 +20,7 @@ const NAV = [
   { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" },
   { href: "/expenses", label: "Money", icon: WalletIcon, match: (p: string) => p.startsWith("/expenses") || p.startsWith("/transfers") },
   null,
-  { href: "/rice", label: "Rice", icon: RiceIcon, match: (p: string) => p.startsWith("/rice") },
+  { href: "/rice", label: "Turns", icon: RiceIcon, match: (p: string) => p.startsWith("/rice") },
   { href: "/analytics", label: "Stats", icon: StatsIcon, match: (p: string) => p.startsWith("/analytics") },
 ];
 
@@ -28,7 +28,7 @@ const TITLES: Record<string, string> = {
   "/": "Flat Split",
   "/expenses": "Money",
   "/transfers": "Money",
-  "/rice": "Rice tracker",
+  "/rice": "Turns",
   "/analytics": "Analytics",
   "/activity": "Activity",
   "/settings": "Settings",

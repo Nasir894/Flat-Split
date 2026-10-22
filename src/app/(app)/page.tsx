@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeftRight, ArrowRight, ChevronRight, Clock, Receipt, Wheat } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Clock, Receipt } from "lucide-react";
 import { useLookups, useRecords, useSummary } from "@/hooks/use-data";
 import { formatTaka, settlePlan } from "@/lib/money";
 import type { Expense, Transfer } from "@/lib/types";
@@ -40,7 +40,8 @@ export default function HomePage() {
   const mine = data.balances.find((b) => b.id === meId)?.balance ?? 0;
   const maxAbs = Math.max(1, ...balances.map((b) => Math.abs(b.balance)));
   const plan = settlePlan(data.balances);
-  const myRice = data.rice.members[meId];
+  // Trackers where it's my turn (I owe at least once).
+  const myTurns = (data.trackers ?? []).filter((t) => (t.status.members[meId]?.owed ?? 0) > 0);
   const awaiting = data.awaitingMe ?? [];
 
   // Expenses and transfers in one timeline, newest first.
@@ -66,11 +67,13 @@ export default function HomePage() {
         <Amount poisha={Math.abs(mine)} className="mt-1 block text-[2.9rem] leading-tight font-bold" />
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Link href="/rice" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
-            <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">🍚</span>
+            <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">
+              {myTurns[0]?.emoji ?? "🔁"}
+            </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">Rice</span>
+              <span className="block text-sm font-medium">Turns</span>
               <span className="block truncate text-[11px] text-foreground/60">
-                {myRice ? (myRice.owed > 0 ? `Give ${myRice.owed}×` : "Up to date") : "—"}
+                {myTurns.length ? `Your turn: ${myTurns.map((t) => t.name).join(", ")}` : "All caught up"}
               </span>
             </span>
             <ChevronRight className="size-4 text-foreground/50" />
@@ -107,10 +110,9 @@ export default function HomePage() {
       )}
 
       {/* Quick actions */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <QuickAction icon={Receipt} label="Add Expense" onClick={() => quickAdd("expense")} />
         <QuickAction icon={ArrowLeftRight} label="Send Money" onClick={() => quickAdd("transfer")} />
-        <QuickAction icon={Wheat} label="Rice Given" onClick={() => quickAdd("rice")} />
       </div>
 
       {/* Balances */}
@@ -153,34 +155,16 @@ export default function HomePage() {
       </Card>
 
       {plan.length > 0 && (
-        <Card className="rise">
-          <CardHeader>
-            <CardTitle className="text-base">Settle up</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5">
-            {plan.map((p) => (
-              <div key={p.from + p.to} className="flex items-center gap-2 text-sm">
-                <span className="font-medium">{name(p.from)}</span>
-                <ArrowRight className="size-4 text-muted-foreground" />
-                <span className="flex-1 font-medium">{name(p.to)}</span>
-                <span className="font-semibold tabular">{formatTaka(p.amount)}</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={() => {
-                    setEditTransfer(undefined);
-                    setDraft({ fromUserId: p.from, toUserId: p.to, amount: p.amount, note: "Settle up" });
-                    setForm("transfer");
-                  }}
-                >
-                  Paid
-                </Button>
-              </div>
-            ))}
-            <p className="pt-1 text-[11px] text-muted-foreground">A payment counts once the receiver confirms it.</p>
-          </CardContent>
-        </Card>
+        <SettleUp
+          plan={plan}
+          meId={meId}
+          name={name}
+          onPaid={(p) => {
+            setEditTransfer(undefined);
+            setDraft({ fromUserId: p.from, toUserId: p.to, amount: p.amount, note: "Settle up" });
+            setForm("transfer");
+          }}
+        />
       )}
 
       {/* Recent activity: expenses + transfers */}
@@ -222,6 +206,66 @@ export default function HomePage() {
       <ExpenseForm open={form === "expense"} onOpenChange={(o) => !o && setForm(null)} expense={editExpense} />
       <TransferForm open={form === "transfer"} onOpenChange={(o) => !o && setForm(null)} transfer={editTransfer} draft={draft} />
     </div>
+  );
+}
+
+/**
+ * Collapsed by default so a payment is never two accidental taps away. Inside, only the person who
+ * owes gets an "I paid" button, which opens the transfer form to confirm (and the receiver must approve).
+ */
+function SettleUp({
+  plan,
+  meId,
+  name,
+  onPaid,
+}: {
+  plan: { from: string; to: string; amount: number }[];
+  meId: string;
+  name: (id: string) => string;
+  onPaid: (p: { from: string; to: string; amount: number }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const mineCount = plan.filter((p) => p.from === meId).length;
+  return (
+    <Card className="rise gap-0 py-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-6 py-4 text-left"
+      >
+        <span className="flex-1">
+          <span className="block text-base font-semibold">Settle up</span>
+          <span className="block text-xs text-muted-foreground">
+            {plan.length} suggested payment{plan.length === 1 ? "" : "s"}
+            {mineCount ? ` · ${mineCount} from you` : ""}
+          </span>
+        </span>
+        <ChevronDown className={cn("size-5 text-muted-foreground transition-transform duration-300", open && "rotate-180")} />
+      </button>
+      <div className={cn("grid transition-all duration-300", open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
+        <div className="overflow-hidden">
+          <div className="space-y-2.5 border-t px-6 pt-3 pb-4">
+            {plan.map((p) => (
+              <div key={p.from + p.to} className="flex items-center gap-2 text-sm">
+                <span className="font-medium">{name(p.from)}</span>
+                <ArrowRight className="size-4 text-muted-foreground" />
+                <span className="flex-1 font-medium">{name(p.to)}</span>
+                <span className="font-semibold tabular">{formatTaka(p.amount)}</span>
+                {p.from === meId && (
+                  <Button size="sm" variant="outline" className="rounded-full" onClick={() => onPaid(p)}>
+                    I paid
+                  </Button>
+                )}
+              </div>
+            ))}
+            <p className="pt-1 text-[11px] text-muted-foreground">
+              &ldquo;I paid&rdquo; opens a form to confirm first, and the receiver still has to approve it.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 

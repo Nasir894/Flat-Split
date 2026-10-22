@@ -13,7 +13,11 @@ Track shared flat spending, transfers between flatmates and rice turns. Next.js 
 
 A simple group chat for members: text and emoji only, with no photos, videos or files. Tap a message to react (👍 ❤️ 😂 😮 😢 🙏 🔥 🎉; one reaction per person; double-tap for ❤️). You see when someone is typing. Members can delete their own messages. Everyone gets a push notification for new messages, and authors are notified of reactions.
 
-## Rice rules
+## Turns (Rice + custom trackers)
+
+Rice is the built-in turn tracker. Any member can add more (gas cylinder, trash, cleaning…), each with its own emoji and participants (everyone, or chosen people). Every tracker follows the rules below independently.
+
+## Turn rules
 
 Separate from money. When a cycle starts, everyone's owed count goes +1, and each gift of rice is −1. If someone who already gave this cycle (and owes ≤ 0) gives again, that gift starts a new cycle. Everyone gets +1, then their gift counts toward it. Anyone who didn't give before a cycle ended is marked as having skipped it. Everything is replayed from the log, so edits and deletes stay consistent.
 

@@ -46,7 +46,7 @@ export type Transfer = Meta & {
   respondedBy: string | null;
   respondedAt: string | null;
 };
-export type RiceEntry = Meta & { userId: string; givenAt: string; note: string };
+export type RiceEntry = Meta & { userId: string; givenAt: string; note: string; trackerId: string };
 
 export type Summary = {
   meId: string;
@@ -58,6 +58,18 @@ export type Summary = {
   awaitingMe: Transfer[];
   lastChat: { id: number; userId: string; createdAt: string } | null;
   lastActivity: { id: number; userId: string | null } | null;
+  trackers: Tracker[];
+};
+
+export type Tracker = {
+  id: string;
+  name: string;
+  emoji: string;
+  isDefault: boolean;
+  /** Participants (everyone when \everyone\ is true). */
+  memberIds: string[];
+  everyone: boolean;
+  status: RiceStatus;
 };
 
 export type Page<T> = { items: T[]; nextCursor: string | null };

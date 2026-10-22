@@ -3,7 +3,7 @@ import { after } from "next/server";
 import type { Query } from "./db";
 import { notifyOthers } from "./push";
 
-export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house";
+export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house" | "tracker";
 export type Action = "create" | "update" | "delete" | "restore" | "import";
 
 const URLS: Record<Entity, string> = {
@@ -14,6 +14,7 @@ const URLS: Record<Entity, string> = {
   user: "/",
   backup: "/activity",
   house: "/settings",
+  tracker: "/rice",
 };
 
 /**
@@ -78,13 +79,14 @@ const VERB: Record<Action, string> = {
 const NOUN: Partial<Record<Entity, string>> = {
   expense: "an expense",
   transfer: "a transfer",
-  rice: "a rice entry",
+  rice: "a turn",
+  tracker: "a turn tracker",
   category: "a category",
   backup: "a backup",
 };
 
 function defaultTitle(entity: Entity, action: Action, actor: string) {
-  if (entity === "rice" && action === "create") return `🍚 ${actor} gave rice`;
+  if (entity === "rice" && action === "create") return `🔁 ${actor} did their turn`;
   if (entity === "transfer" && action === "create") return `💸 ${actor} recorded a transfer`;
   if (entity === "category" && action === "create") return `🏷️ ${actor} added a category`;
   if (entity === "category" && action === "delete") return `🏷️ ${actor} hid a category`;

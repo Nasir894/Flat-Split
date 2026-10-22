@@ -25,7 +25,9 @@ const VERB = { create: "added", update: "edited", delete: "deleted", restore: "r
 const WHAT: Record<string, string> = {
   expense: "an expense",
   transfer: "a transfer",
-  rice: "a rice entry",
+  rice: "a turn",
+  tracker: "a turn tracker",
+  house: "",
   category: "a category",
   user: "",
   backup: "",
