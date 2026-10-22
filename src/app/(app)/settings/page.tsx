@@ -11,9 +11,10 @@ import { api } from "@/lib/api";
 import { useLookups } from "@/hooks/use-data";
 import { CACHE_KEY } from "@/components/providers";
 import { PushToggle, currentSubscription } from "@/components/push-toggle";
-import { MemberAvatar } from "@/components/member-avatar";
+import { UserAvatar } from "@/components/member-avatar";
 import { RecoveryCodeDialog } from "@/components/recovery-code-dialog";
 import { BiometricCard } from "@/components/biometric-card";
+import { ProfileCard } from "@/components/profile-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -93,8 +94,12 @@ export default function SettingsPage() {
       router.replace("/login");
     });
 
+  const me = users.find((u) => u.id === meId);
+
   return (
     <div className="space-y-4">
+      {me && <ProfileCard me={me} />}
+
       <Card className="rise">
         <CardHeader>
           <CardTitle className="text-base">Appearance</CardTitle>
@@ -499,7 +504,7 @@ function MembersCard({ users, meId }: { users: ReturnType<typeof useLookups>["us
       <CardContent className="space-y-2">
         {users.map((u) => (
           <div key={u.id} className="flex items-center gap-3 text-sm">
-            <MemberAvatar name={u.name} color={u.color} className="size-8 text-xs" />
+            <UserAvatar user={u} className="size-8 text-xs" />
             <span className="min-w-0 flex-1">
               {u.name} {u.id === meId && <span className="text-muted-foreground">(me)</span>}
               <span className="block text-xs text-muted-foreground">

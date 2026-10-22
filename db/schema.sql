@@ -23,6 +23,11 @@ do $$ begin
   alter table users add constraint users_status_check check (status in ('pending', 'active'));
 exception when duplicate_object then null; end $$;
 
+-- Profile pictures: small (≤256px) images resized on the phone, stored inline.
+alter table users add column if not exists avatar bytea;
+alter table users add column if not exists avatar_type text;
+alter table users add column if not exists avatar_updated_at timestamptz;
+
 -- House-wide settings (e.g. the house code), editable from the app.
 create table if not exists settings (
   key text primary key,

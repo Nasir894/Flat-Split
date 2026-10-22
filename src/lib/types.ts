@@ -9,6 +9,8 @@ export type User = {
   resetApproved: boolean;
   addedBy: string | null;
   joinedAt: string;
+  /** Set when the member has a profile picture; changes whenever it's replaced. */
+  avatarVersion: string | null;
 };
 export type PendingMember = { id: string; name: string; color: string; createdAt: string };
 export type Category = { id: string; name: string; emoji: string; isDefault: boolean; deletedAt: string | null };
@@ -64,5 +66,10 @@ export type Analytics = {
   byCategory: { categoryId: string | null; total: number; count: number }[];
   byPayer: { userId: string; total: number }[];
   byConsumer: { userId: string; total: number }[];
-  totals: { total: number; count: number; largest: number };
+  /** 1 = Monday … 7 = Sunday */
+  byWeekday: { dow: number; total: number; count: number }[];
+  top: { id: string; description: string; amount: number; categoryId: string | null; payerId: string; spentAt: string }[];
+  totals: { total: number; count: number; activeDays: number };
+  /** Same-length period right before this one. */
+  previous: { total: number; count: number };
 };

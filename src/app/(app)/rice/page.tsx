@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
-import { Check, Info, Plus, Wheat } from "lucide-react";
+import { Check, Info, Wheat } from "lucide-react";
 import { useLookups, useRecords, useSummary } from "@/hooks/use-data";
 import type { RiceEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MemberAvatar } from "@/components/member-avatar";
+import { UserAvatar } from "@/components/member-avatar";
 import { EmptyState, LoadMore, RecordActions, RecordMeta, RecordRow } from "@/components/records";
 import { RiceForm } from "@/components/forms/rice-form";
 
@@ -51,7 +50,7 @@ export default function RicePage() {
             if (!s) return null;
             return (
               <div key={u.id} className="flex items-center gap-3 py-2.5">
-                <MemberAvatar name={u.name} color={u.color} />
+                <UserAvatar user={u} />
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">
                     {u.name}
@@ -153,15 +152,6 @@ export default function RicePage() {
           </div>
         </TabsContent>
       </Tabs>
-
-      <Button
-        size="lg"
-        className="fixed right-4 bottom-20 z-20 size-14 rounded-full shadow-xl"
-        onClick={() => (setEdit(undefined), setOpen(true))}
-        aria-label="Record rice given"
-      >
-        <Plus className="size-6" />
-      </Button>
       <RiceForm open={open} onOpenChange={setOpen} entry={edit} />
     </div>
   );

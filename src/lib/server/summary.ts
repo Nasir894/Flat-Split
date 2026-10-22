@@ -8,7 +8,8 @@ export async function getSummary(meId: string) {
   const [users, pending, categories, balances, rice] = await Promise.all([
     query(`select id, name, color, created_at as "createdAt", (pin_hash is null) as "needsPin",
             coalesce(reset_expires_at > now(), false) as "resetApproved",
-            approved_by as "addedBy", coalesce(approved_at, created_at) as "joinedAt"
+            approved_by as "addedBy", coalesce(approved_at, created_at) as "joinedAt",
+            (extract(epoch from avatar_updated_at) * 1000)::bigint::text as "avatarVersion"
            from users where status = 'active' order by created_at`),
     query(`select id, name, color, created_at as "createdAt" from users where status = 'pending' order by created_at`),
     query(

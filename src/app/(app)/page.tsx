@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeftRight, ArrowRight, Plus, Receipt, Wheat } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, Receipt, Wheat } from "lucide-react";
 import { useLookups, useRecords, useSummary } from "@/hooks/use-data";
 import { formatTaka, settlePlan } from "@/lib/money";
 import type { Expense } from "@/lib/types";
@@ -10,19 +10,20 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MemberAvatar } from "@/components/member-avatar";
+import { UserAvatar } from "@/components/member-avatar";
 import { ExpenseItem } from "@/components/expense-item";
 import { EmptyState } from "@/components/records";
 import { ExpenseForm } from "@/components/forms/expense-form";
 import { TransferForm, type TransferDraft } from "@/components/forms/transfer-form";
-import { RiceForm } from "@/components/forms/rice-form";
+import { useQuickAdd } from "@/components/quick-add";
 import { JoinRequests } from "@/components/join-requests";
 
 export default function HomePage() {
   const { data } = useSummary();
   const { userById, meId, name } = useLookups();
   const recent = useRecords<Expense>("expenses", { limit: "5" });
-  const [form, setForm] = useState<null | "expense" | "transfer" | "rice">(null);
+  const quickAdd = useQuickAdd();
+  const [form, setForm] = useState<null | "expense" | "transfer">(null);
   const [edit, setEdit] = useState<Expense>();
   const [draft, setDraft] = useState<TransferDraft>();
 
@@ -51,9 +52,9 @@ export default function HomePage() {
       </Card>
 
       <div className="grid grid-cols-3 gap-2">
-        <QuickAction icon={Receipt} label="Expense" onClick={() => (setEdit(undefined), setForm("expense"))} />
-        <QuickAction icon={ArrowLeftRight} label="Transfer" onClick={() => (setDraft(undefined), setForm("transfer"))} />
-        <QuickAction icon={Wheat} label="Rice given" onClick={() => setForm("rice")} />
+        <QuickAction icon={Receipt} label="Expense" onClick={() => quickAdd("expense")} />
+        <QuickAction icon={ArrowLeftRight} label="Transfer" onClick={() => quickAdd("transfer")} />
+        <QuickAction icon={Wheat} label="Rice given" onClick={() => quickAdd("rice")} />
       </div>
 
       <Card className="rise">
@@ -66,7 +67,7 @@ export default function HomePage() {
             const pct = (Math.abs(b.balance) / maxAbs) * 50;
             return (
               <div key={b.id} className="flex items-center gap-3">
-                <MemberAvatar name={u?.name ?? "?"} color={u?.color} className="size-8 text-xs" />
+                <UserAvatar user={u} className="size-8 text-xs" />
                 <div className="min-w-0 flex-1">
                   <div className="flex justify-between text-sm">
                     <span className="truncate">
@@ -137,18 +138,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <Button
-        size="lg"
-        className="fixed right-4 bottom-20 z-20 size-14 rounded-full shadow-xl"
-        onClick={() => (setEdit(undefined), setForm("expense"))}
-        aria-label="Add expense"
-      >
-        <Plus className="size-6" />
-      </Button>
-
       <ExpenseForm open={form === "expense"} onOpenChange={(o) => !o && setForm(null)} expense={edit} />
       <TransferForm open={form === "transfer"} onOpenChange={(o) => !o && setForm(null)} draft={draft} />
-      <RiceForm open={form === "rice"} onOpenChange={(o) => !o && setForm(null)} />
     </div>
   );
 }

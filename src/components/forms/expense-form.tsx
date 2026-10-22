@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MemberAvatar } from "@/components/member-avatar";
+import { UserAvatar } from "@/components/member-avatar";
 import { AmountInput, cleanAmount, FormDrawer, fromDateInput, toDateInput } from "./shared";
 
 export function ExpenseForm({
@@ -129,7 +129,7 @@ function ExpenseFields({ expense, onDone }: { expense?: Expense; onDone: () => v
                   onClick={() => toggle(u.id)}
                   className={cn("flex w-full items-center gap-3 px-3 py-2 text-left transition", !on && "opacity-50")}
                 >
-                  <MemberAvatar name={u.name} color={u.color} className="size-7 text-xs" />
+                  <UserAvatar user={u} className="size-7 text-xs" />
                   <span className="flex-1 text-sm">{u.name}</span>
                   <span className="text-sm tabular text-muted-foreground">{on && share ? formatTaka(share) : ""}</span>
                   <span

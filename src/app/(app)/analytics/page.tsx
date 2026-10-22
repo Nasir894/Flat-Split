@@ -1,35 +1,40 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { addDays, differenceInCalendarDays, eachDayOfInterval, format, startOfDay, subDays } from "date-fns";
+import { CalendarDays, ChartPie, TrendingDown, TrendingUp, Trophy, Users } from "lucide-react";
 import { useLookups } from "@/hooks/use-data";
 import { api } from "@/lib/api";
 import { formatTaka } from "@/lib/money";
 import type { Analytics } from "@/lib/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Chip } from "@/components/chip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UserAvatar } from "@/components/member-avatar";
 import type { Slice } from "@/components/analytics-charts";
 
 // Recharts is only downloaded when this page opens.
 const chartFallback = () => <Skeleton className="h-52 w-full" />;
-const DailyChart = dynamic(() => import("@/components/analytics-charts").then((m) => m.DailyChart), { ssr: false, loading: chartFallback });
+const TrendChart = dynamic(() => import("@/components/analytics-charts").then((m) => m.TrendChart), { ssr: false, loading: chartFallback });
 const CategoryDonut = dynamic(() => import("@/components/analytics-charts").then((m) => m.CategoryDonut), { ssr: false, loading: chartFallback });
-const PeopleChart = dynamic(() => import("@/components/analytics-charts").then((m) => m.PeopleChart), { ssr: false, loading: chartFallback });
+const WeekdayChart = dynamic(() => import("@/components/analytics-charts").then((m) => m.WeekdayChart), { ssr: false, loading: chartFallback });
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "custom";
-const PRESETS: { id: Preset; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "yesterday", label: "Yesterday" },
-  { id: "7d", label: "Last 7 days" },
-  { id: "30d", label: "Last 30 days" },
-  { id: "custom", label: "Custom" },
+const PRESETS: { id: Preset; label: string; prev: string }[] = [
+  { id: "today", label: "Today", prev: "yesterday" },
+  { id: "yesterday", label: "Yesterday", prev: "the day before" },
+  { id: "7d", label: "7 days", prev: "the previous 7 days" },
+  { id: "30d", label: "30 days", prev: "the previous 30 days" },
+  { id: "custom", label: "Custom", prev: "the previous period" },
 ];
+// Color follows the category (by its fixed position in the category list), never its rank.
 const PALETTE = Array.from({ length: 7 }, (_, i) => `var(--chart-${i + 1})`);
 const OTHER_COLOR = "var(--chart-8)";
+const ALL = "all";
 
 function rangeFor(p: Preset, from: string, to: string): [Date, Date] {
   const today = startOfDay(new Date());
@@ -51,186 +56,280 @@ function rangeFor(p: Preset, from: string, to: string): [Date, Date] {
 }
 
 export default function AnalyticsPage() {
-  const { activeCategories, catById, users } = useLookups();
+  const { activeCategories, catById, users, userById, name } = useLookups();
   const [preset, setPreset] = useState<Preset>("7d");
   const [customFrom, setCustomFrom] = useState(format(subDays(new Date(), 13), "yyyy-MM-dd"));
   const [customTo, setCustomTo] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [category, setCategory] = useState<string | null>(null);
+  const [category, setCategory] = useState<string>(ALL);
 
   const [from, to] = rangeFor(preset, customFrom, customTo);
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+  const days = Math.max(1, differenceInCalendarDays(to, from));
   const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
-  if (category) params.set("category", category);
+  if (category !== ALL) params.set("category", category);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["analytics", params.toString()],
     queryFn: () => api<Analytics>(`/api/analytics?${params}`),
     placeholderData: (prev) => prev,
   });
 
-  const days = Math.max(1, differenceInCalendarDays(to, from));
-  const fromMs = from.getTime();
-  const toMs = to.getTime();
+  const total = data?.totals.total ?? 0;
+  const prevTotal = data?.previous.total ?? 0;
+  const change = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : null;
+  const average = Math.round(total / days);
 
-  const daily = useMemo(() => {
-    if (!data) return [];
-    const map = new Map(data.daily.map((d) => [d.day, d.total]));
-    return eachDayOfInterval({ start: fromMs, end: subDays(toMs, 1) }).map((d) => {
-      const day = format(d, "yyyy-MM-dd");
-      return { day, total: map.get(day) ?? 0 };
-    });
-  }, [data, fromMs, toMs]);
+  // Every day in the range, including days with no spending.
+  const dailyMap = new Map((data?.daily ?? []).map((d) => [d.day, d.total]));
+  const daily = eachDayOfInterval({ start: fromMs, end: subDays(toMs, 1) }).map((d) => {
+    const day = format(d, "yyyy-MM-dd");
+    return { day, total: dailyMap.get(day) ?? 0 };
+  });
 
-  // Color follows the category (by its position in the full list), never its rank.
-  const slices: Slice[] = useMemo(() => {
+  const slices: (Slice & { count: number })[] = (() => {
     if (!data) return [];
     const colorOf = new Map(activeCategories.map((c, i) => [c.id, PALETTE[i % PALETTE.length]]));
     const rows = data.byCategory.map((r) => {
       const c = r.categoryId ? catById.get(r.categoryId) : undefined;
       return {
         key: r.categoryId ?? "none",
-        label: c ? `${c.emoji} ${c.name}` : "Uncategorized",
+        label: c ? `${c.emoji} ${c.name}` : "🧾 Uncategorized",
         total: r.total,
+        count: r.count,
         color: (r.categoryId && colorOf.get(r.categoryId)) || OTHER_COLOR,
       };
     });
     if (rows.length <= 7) return rows;
-    const other = rows.slice(6).reduce((s, r) => s + r.total, 0);
-    return [...rows.slice(0, 6), { key: "other", label: "Other", total: other, color: OTHER_COLOR }];
-  }, [data, activeCategories, catById]);
+    const rest = rows.slice(6);
+    return [
+      ...rows.slice(0, 6),
+      { key: "other", label: "📦 Other", total: rest.reduce((s, r) => s + r.total, 0), count: rest.reduce((s, r) => s + r.count, 0), color: OTHER_COLOR },
+    ];
+  })();
 
-  const people = useMemo(
-    () =>
-      users.map((u) => ({
-        name: u.name,
-        paid: data?.byPayer.find((p) => p.userId === u.id)?.total ?? 0,
-        consumed: data?.byConsumer.find((p) => p.userId === u.id)?.total ?? 0,
-      })),
-    [users, data],
-  );
+  const people = (() => {
+    const rows = users.map((u) => {
+      const paid = data?.byPayer.find((p) => p.userId === u.id)?.total ?? 0;
+      const share = data?.byConsumer.find((p) => p.userId === u.id)?.total ?? 0;
+      return { user: u, paid, share, net: paid - share };
+    });
+    return rows.sort((a, b) => b.share - a.share);
+  })();
+  const peopleMax = Math.max(1, ...people.flatMap((p) => [p.paid, p.share]));
 
-  const total = data?.totals.total ?? 0;
+  const presetInfo = PRESETS.find((p) => p.id === preset)!;
+  const pick = (key: string) => key !== "other" && key !== "none" && setCategory(key);
 
   return (
     <div className="space-y-4">
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
-        {PRESETS.map((p) => (
-          <Chip key={p.id} active={preset === p.id} onClick={() => setPreset(p.id)}>
-            {p.label}
-          </Chip>
-        ))}
-      </div>
-      {preset === "custom" && (
-        <div className="rise grid grid-cols-2 gap-2">
-          <Input type="date" aria-label="From" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-          <Input type="date" aria-label="To" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+      {/* Filters */}
+      <div className="space-y-2">
+        <div className="grid grid-cols-5 gap-1 rounded-xl bg-muted p-1">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPreset(p.id)}
+              className={cn(
+                "rounded-lg py-1.5 text-xs font-medium transition-all",
+                preset === p.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
-      )}
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
-        <Chip active={!category} onClick={() => setCategory(null)}>
-          All categories
-        </Chip>
-        {activeCategories.map((c) => (
-          <Chip key={c.id} active={category === c.id} onClick={() => setCategory(category === c.id ? null : c.id)}>
-            {c.emoji} {c.name}
-          </Chip>
-        ))}
+        {preset === "custom" && (
+          <div className="rise grid grid-cols-2 gap-2">
+            <Input type="date" aria-label="From" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} />
+            <Input type="date" aria-label="To" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          </div>
+        )}
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger className="w-full" aria-label="Category">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All categories</SelectItem>
+            {activeCategories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.emoji} {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading && !data ? (
-        <Skeleton className="h-80" />
+        <div className="space-y-4">
+          <Skeleton className="h-36 rounded-xl" />
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
       ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            <Stat label="Total spent" value={formatTaka(total)} big />
-            <Stat label="Expenses" value={String(data?.totals.count ?? 0)} />
-            <Stat label="Average / day" value={formatTaka(Math.round(total / days))} />
-            <Stat label="Largest" value={formatTaka(data?.totals.largest ?? 0)} />
-          </div>
+        <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-70")}>
+          {/* Headline */}
+          <Card className="rise overflow-hidden border-0 bg-gradient-to-br from-teal-500 to-teal-700 text-white shadow-lg">
+            <CardContent className="space-y-3">
+              <div>
+                <p className="text-sm text-white/80">
+                  {category === ALL ? "Total spent" : `Spent on ${catById.get(category)?.name ?? "category"}`} ·{" "}
+                  {preset === "custom"
+                    ? `${format(from, "d MMM")} – ${format(subDays(to, 1), "d MMM")}`
+                    : presetInfo.label.toLowerCase()}
+                </p>
+                <p className="text-4xl font-bold tracking-tight tabular">{formatTaka(total)}</p>
+                {change !== null ? (
+                  <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-xs">
+                    {change >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
+                    {Math.abs(change).toFixed(0)}% {change >= 0 ? "more" : "less"} than {presetInfo.prev}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-white/70">Nothing spent in {presetInfo.prev} to compare with</p>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2 border-t border-white/20 pt-3 text-center">
+                <Stat label="Per day" value={formatTaka(average)} />
+                <Stat label="Expenses" value={String(data?.totals.count ?? 0)} />
+                <Stat label="Days with spending" value={`${data?.totals.activeDays ?? 0}/${days}`} />
+              </div>
+            </CardContent>
+          </Card>
 
-          {days > 1 && (
-            <Card className="rise">
-              <CardHeader>
-                <CardTitle className="text-base">Daily spending</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <DailyChart data={daily} />
-              </CardContent>
-            </Card>
-          )}
+          {total === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">No spending in this period.</p>
+          ) : (
+            <>
+              {days > 1 && (
+                <Section icon={TrendingUp} title="Spending over time" description="Daily total, with the average per day dashed">
+                  <TrendChart data={daily} average={average} />
+                </Section>
+              )}
 
-          {!category && slices.length > 0 && (
-            <Card className="rise">
-              <CardHeader>
-                <CardTitle className="text-base">By category</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <CategoryDonut data={slices} onPick={(k) => k !== "other" && k !== "none" && setCategory(k)} />
-                <ul className="space-y-1.5 text-sm">
-                  {slices.map((s) => (
-                    <li key={s.key}>
-                      <button
-                        className="flex w-full items-center gap-2 text-left"
-                        onClick={() => s.key !== "other" && s.key !== "none" && setCategory(s.key)}
-                      >
-                        <span className="size-3 rounded-sm" style={{ background: s.color }} />
-                        <span className="flex-1 truncate">{s.label}</span>
-                        <span className="text-muted-foreground tabular">{total ? Math.round((s.total / total) * 100) : 0}%</span>
-                        <span className="w-24 text-right font-medium tabular">{formatTaka(s.total)}</span>
-                      </button>
+              {category === ALL && slices.length > 0 && (
+                <Section icon={ChartPie} title="Where the money went" description="Tap a category to focus on it">
+                  <CategoryDonut data={slices} total={total} onPick={pick} />
+                  <ul className="mt-4 space-y-3">
+                    {slices.map((s) => {
+                      const pct = total ? (s.total / total) * 100 : 0;
+                      return (
+                        <li key={s.key}>
+                          <button className="w-full text-left" onClick={() => pick(s.key)}>
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
+                              <span className="flex-1 truncate">{s.label}</span>
+                              <span className="text-xs text-muted-foreground">{s.count}×</span>
+                              <span className="w-12 text-right text-xs text-muted-foreground tabular">{pct.toFixed(0)}%</span>
+                              <span className="w-20 text-right font-semibold tabular">{formatTaka(s.total)}</span>
+                            </div>
+                            <div className="mt-1.5 ml-4.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: s.color }} />
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Section>
+              )}
+
+              <Section icon={Users} title="Who paid & who consumed" description="Paid = money spent · Share = their part of the bills">
+                <ul className="space-y-4">
+                  {people.map(({ user, paid, share, net }) => (
+                    <li key={user.id} className="flex items-center gap-3">
+                      <UserAvatar user={user} />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-sm font-medium">{user.name}</span>
+                          <span className={cn("text-xs font-semibold tabular", net > 0 ? "text-positive" : net < 0 ? "text-negative" : "text-muted-foreground")}>
+                            {formatTaka(net, { sign: true })}
+                          </span>
+                        </div>
+                        <Bar label="Paid" value={paid} max={peopleMax} className="bg-chart-1" />
+                        <Bar label="Share" value={share} max={peopleMax} className="bg-chart-2" />
+                      </div>
                     </li>
                   ))}
                 </ul>
-              </CardContent>
-            </Card>
-          )}
+              </Section>
 
-          {total > 0 && (
-            <Card className="rise">
-              <CardHeader>
-                <CardTitle className="text-base">Who paid vs. who consumed</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PeopleChart data={people} />
-                <table className="mt-3 w-full text-sm">
-                  <thead className="text-xs text-muted-foreground">
-                    <tr>
-                      <th className="text-left font-normal">Member</th>
-                      <th className="text-right font-normal">Paid</th>
-                      <th className="text-right font-normal">Consumed</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {people.map((p) => (
-                      <tr key={p.name}>
-                        <td>{p.name}</td>
-                        <td className="text-right tabular">{formatTaka(p.paid)}</td>
-                        <td className="text-right tabular">{formatTaka(p.consumed)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          )}
+              {days >= 7 && data && (
+                <Section icon={CalendarDays} title="By day of the week" description="Busiest day highlighted">
+                  <WeekdayChart data={data.byWeekday} />
+                </Section>
+              )}
 
-          {total === 0 && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No spending{category ? ` on ${catById.get(category)?.name ?? "this category"}` : ""} for this period.
-            </p>
+              {data && data.top.length > 0 && (
+                <Section icon={Trophy} title="Biggest expenses">
+                  <ol className="divide-y">
+                    {data.top.map((e, i) => {
+                      const c = e.categoryId ? catById.get(e.categoryId) : undefined;
+                      return (
+                        <li key={e.id} className="flex items-center gap-3 py-2.5">
+                          <span className="w-4 text-center text-xs font-semibold text-muted-foreground">{i + 1}</span>
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted text-lg">{c?.emoji ?? "🧾"}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{e.description || c?.name || "Expense"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {name(e.payerId)} · {format(new Date(e.spentAt), "d MMM")}
+                            </p>
+                          </div>
+                          <span className="font-semibold tabular">{formatTaka(e.amount)}</span>
+                          <span className="sr-only">{userById.get(e.payerId)?.name}</span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </Section>
+              )}
+            </>
           )}
-        </>
+        </div>
       )}
     </div>
   );
 }
 
-function Stat({ label, value, big }: { label: string; value: string; big?: boolean }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="rise gap-1 py-3">
-      <CardContent className="px-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={big ? "text-2xl font-bold tabular" : "text-lg font-semibold tabular"}>{value}</p>
-      </CardContent>
+    <div>
+      <p className="text-base font-semibold tabular">{value}</p>
+      <p className="text-[11px] text-white/75">{label}</p>
+    </div>
+  );
+}
+
+function Section({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="rise">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Icon className="size-4 text-primary" /> {title}
+        </CardTitle>
+        {description && <CardDescription>{description}</CardDescription>}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
     </Card>
+  );
+}
+
+function Bar({ label, value, max, className }: { label: string; value: number; max: number; className: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <span className="w-9">{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full transition-all duration-700", className)} style={{ width: `${(value / max) * 100}%` }} />
+      </div>
+      <span className="w-16 text-right tabular">{formatTaka(value)}</span>
+    </div>
   );
 }

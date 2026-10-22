@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Receipt } from "lucide-react";
+import { Receipt } from "lucide-react";
 import { useLookups, useRecords } from "@/hooks/use-data";
 import { formatTaka } from "@/lib/money";
 import type { Expense } from "@/lib/types";
 import { byDay, dayLabel } from "@/lib/dates";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Chip } from "@/components/chip";
+import { MoneyTabs } from "@/components/money-tabs";
 import { ExpenseItem } from "@/components/expense-item";
 import { EmptyState, LoadMore } from "@/components/records";
 import { ExpenseForm } from "@/components/forms/expense-form";
@@ -23,6 +23,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-3">
+      <MoneyTabs />
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
         <Chip active={!category} onClick={() => setCategory(undefined)}>
           All
@@ -60,15 +61,6 @@ export default function ExpensesPage() {
         ))
       )}
       <LoadMore query={q} />
-
-      <Button
-        size="lg"
-        className="fixed right-4 bottom-20 z-20 size-14 rounded-full shadow-xl"
-        onClick={() => (setEdit(undefined), setOpen(true))}
-        aria-label="Add expense"
-      >
-        <Plus className="size-6" />
-      </Button>
       <ExpenseForm open={open} onOpenChange={setOpen} expense={edit} />
     </div>
   );
