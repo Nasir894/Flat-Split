@@ -1,0 +1,37 @@
+import "server-only";
+import { computeRice } from "@/lib/rice";
+import { query } from "./db";
+import { iso } from "./http";
+import { RICE_COLS } from "./records";
+
+export async function getSummary(meId: string) {
+  const [users, categories, balances, rice] = await Promise.all([
+    query(`select id, name, color, created_at as "createdAt", (pin_hash is null) as "needsPin",
+            coalesce(reset_expires_at > now(), false) as "resetApproved" from users order by created_at`),
+    query(
+      `select id, name, emoji, is_default as "isDefault", deleted_at as "deletedAt"
+       from categories order by is_default desc, name`,
+    ),
+    query<{ id: string; balance: number; paid: number; consumed: number }>(
+      `with paid as (select payer_id uid, sum(amount) v from expenses where deleted_at is null group by 1),
+            owed as (select s.user_id uid, sum(s.amount) v from expense_shares s
+                     join expenses e on e.id = s.expense_id where e.deleted_at is null group by 1),
+            sent as (select from_user_id uid, sum(amount) v from transfers where deleted_at is null group by 1),
+            recv as (select to_user_id uid, sum(amount) v from transfers where deleted_at is null group by 1)
+       select u.id,
+              (coalesce(p.v,0) - coalesce(o.v,0) + coalesce(s.v,0) - coalesce(r.v,0))::float8 as balance,
+              coalesce(p.v,0)::float8 as paid, coalesce(o.v,0)::float8 as consumed
+       from users u
+       left join paid p on p.uid = u.id left join owed o on o.uid = u.id
+       left join sent s on s.uid = u.id left join recv r on r.uid = u.id`,
+    ),
+    query(`select ${RICE_COLS} from rice_entries r where r.deleted_at is null`),
+  ]);
+
+  const riceStatus = computeRice(
+    users.map((u) => ({ id: u.id, createdAt: iso(u.createdAt)! })),
+    rice.map((r) => ({ id: r.id, userId: r.userId, givenAt: iso(r.givenAt)!, createdAt: iso(r.createdAt)! })),
+  );
+
+  return { meId, users, categories, balances, rice: riceStatus };
+}

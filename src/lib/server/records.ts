@@ -1,0 +1,297 @@
+import "server-only";
+import { z } from "zod";
+import { formatTaka, splitEqual } from "@/lib/money";
+import { query, withTx, type Query, type Row } from "./db";
+import { HttpError } from "./http";
+import { audit, userName } from "./audit";
+
+// ---------- input schemas ----------
+
+const amount = z.number().int("Invalid amount").positive("Amount must be more than 0").max(100_000_000_00);
+const when = z.iso.datetime({ offset: true }).optional();
+
+export const expenseInput = z.object({
+  payerId: z.uuid(),
+  amount,
+  categoryId: z.uuid().nullable(),
+  description: z.string().trim().max(200).default(""),
+  spentAt: when,
+  consumerIds: z.array(z.uuid()).min(1, "Pick at least one person who consumed it"),
+});
+
+export const transferInput = z
+  .object({
+    fromUserId: z.uuid(),
+    toUserId: z.uuid(),
+    amount,
+    note: z.string().trim().max(200).default(""),
+    sentAt: when,
+  })
+  .refine((t) => t.fromUserId !== t.toUserId, "Sender and receiver must be different");
+
+export const riceInput = z.object({
+  userId: z.uuid(),
+  givenAt: when,
+  note: z.string().trim().max(200).default(""),
+});
+
+export const versionInput = z.object({ version: z.number().int().positive() });
+
+// ---------- reads ----------
+
+export const EXPENSE_COLS = `
+  e.id, e.payer_id as "payerId", e.amount::int as amount, e.category_id as "categoryId",
+  e.description, e.spent_at as "spentAt", e.created_by as "createdBy", e.created_at as "createdAt",
+  e.updated_by as "updatedBy", e.updated_at as "updatedAt", e.deleted_by as "deletedBy",
+  e.deleted_at as "deletedAt", e.version,
+  coalesce((select json_agg(json_build_object('userId', s.user_id, 'amount', s.amount::int) order by s.user_id)
+            from expense_shares s where s.expense_id = e.id), '[]'::json) as shares`;
+
+export const TRANSFER_COLS = `
+  t.id, t.from_user_id as "fromUserId", t.to_user_id as "toUserId", t.amount::int as amount, t.note,
+  t.sent_at as "sentAt", t.created_by as "createdBy", t.created_at as "createdAt",
+  t.updated_by as "updatedBy", t.updated_at as "updatedAt", t.deleted_by as "deletedBy",
+  t.deleted_at as "deletedAt", t.version`;
+
+export const RICE_COLS = `
+  r.id, r.user_id as "userId", r.given_at as "givenAt", r.note, r.created_by as "createdBy",
+  r.created_at as "createdAt", r.updated_by as "updatedBy", r.updated_at as "updatedAt",
+  r.deleted_by as "deletedBy", r.deleted_at as "deletedAt", r.version`;
+
+const TABLES = {
+  expense: { table: "expenses", alias: "e", cols: EXPENSE_COLS },
+  transfer: { table: "transfers", alias: "t", cols: TRANSFER_COLS },
+  rice: { table: "rice_entries", alias: "r", cols: RICE_COLS },
+} as const;
+export type RecordKind = keyof typeof TABLES;
+
+const SLUGS: Record<string, RecordKind> = { expenses: "expense", transfers: "transfer", rice: "rice" };
+
+/** Maps a URL segment (expenses | transfers | rice) to a record kind. */
+export function kindOf(slug: string): RecordKind {
+  const k = SLUGS[slug];
+  if (!k) throw new HttpError(404, "Not found");
+  return k;
+}
+
+async function snapshot(q: Query, kind: RecordKind, id: string, lock = false) {
+  const { table, alias, cols } = TABLES[kind];
+  const [row] = await q(`select ${cols} from ${table} ${alias} where ${alias}.id = $1 ${lock ? "for update" : ""}`, [id]);
+  if (!row) throw new HttpError(404, "Not found");
+  return row;
+}
+
+function assertVersion(row: Row, version: number) {
+  if (row.version !== version) {
+    throw new HttpError(409, "Someone else changed this just now. Refresh and try again.");
+  }
+}
+
+async function names(q: Query, ids: string[]) {
+  const rows = await q<{ id: string; name: string }>("select id, name from users where id = any($1::uuid[])", [ids]);
+  return Object.fromEntries(rows.map((r) => [r.id, r.name]));
+}
+
+async function categoryLabel(q: Query, id: string | null) {
+  if (!id) return "";
+  const [c] = await q<{ name: string; emoji: string }>("select name, emoji from categories where id = $1", [id]);
+  return c ? `${c.emoji} ${c.name}` : "";
+}
+
+async function assertUsers(q: Query, ids: string[]) {
+  const unique = [...new Set(ids)];
+  const [{ n }] = await q<{ n: number }>("select count(*)::int as n from users where id = any($1::uuid[])", [unique]);
+  if (n !== unique.length) throw new HttpError(400, "Unknown member selected");
+}
+
+// ---------- summaries for the activity feed & notifications ----------
+
+async function describe(q: Query, kind: RecordKind, row: Record<string, unknown>) {
+  if (kind === "expense") {
+    const n = await names(q, [row.payerId as string]);
+    const cat = await categoryLabel(q, row.categoryId as string | null);
+    const what = [row.description, cat && `(${cat})`].filter(Boolean).join(" ");
+    return `${formatTaka(row.amount as number)} paid by ${n[row.payerId as string]}${what ? ` · ${what}` : ""}`;
+  }
+  if (kind === "transfer") {
+    const n = await names(q, [row.fromUserId as string, row.toUserId as string]);
+    return `${n[row.fromUserId as string]} → ${n[row.toUserId as string]} ${formatTaka(row.amount as number)}${
+      row.note ? ` · ${row.note}` : ""
+    }`;
+  }
+  const n = await names(q, [row.userId as string]);
+  return `🍚 Rice given by ${n[row.userId as string]}`;
+}
+
+// ---------- writes ----------
+
+export async function createRecord(kind: RecordKind, actorId: string, body: unknown) {
+  return withTx(async (q) => {
+    let id: string;
+    if (kind === "expense") {
+      const d = expenseInput.parse(body);
+      await assertUsers(q, [d.payerId, ...d.consumerIds]);
+      [{ id }] = await q<{ id: string }>(
+        `insert into expenses (payer_id, amount, category_id, description, spent_at, created_by)
+         values ($1, $2, $3, $4, date_trunc('milliseconds', coalesce($5::timestamptz, now())), $6) returning id`,
+        [d.payerId, d.amount, d.categoryId, d.description, d.spentAt ?? null, actorId],
+      );
+      await writeShares(q, id, d.amount, d.consumerIds);
+    } else if (kind === "transfer") {
+      const d = transferInput.parse(body);
+      await assertUsers(q, [d.fromUserId, d.toUserId]);
+      [{ id }] = await q<{ id: string }>(
+        `insert into transfers (from_user_id, to_user_id, amount, note, sent_at, created_by)
+         values ($1, $2, $3, $4, date_trunc('milliseconds', coalesce($5::timestamptz, now())), $6) returning id`,
+        [d.fromUserId, d.toUserId, d.amount, d.note, d.sentAt ?? null, actorId],
+      );
+    } else {
+      const d = riceInput.parse(body);
+      await assertUsers(q, [d.userId]);
+      [{ id }] = await q<{ id: string }>(
+        `insert into rice_entries (user_id, given_at, note, created_by)
+         values ($1, date_trunc('milliseconds', coalesce($2::timestamptz, now())), $3, $4) returning id`,
+        [d.userId, d.givenAt ?? null, d.note, actorId],
+      );
+    }
+    const row = await snapshot(q, kind, id);
+    await audit(q, {
+      entity: kind,
+      entityId: id,
+      action: "create",
+      actorId,
+      actorName: await userName(q, actorId),
+      summary: await describe(q, kind, row),
+      after: row,
+    });
+    return row;
+  });
+}
+
+export async function updateRecord(kind: RecordKind, actorId: string, id: string, body: unknown) {
+  const { version } = versionInput.parse(body);
+  return withTx(async (q) => {
+    const before = await snapshot(q, kind, id, true);
+    assertVersion(before, version);
+    if (before.deletedAt) throw new HttpError(400, "Restore this record before editing it");
+
+    if (kind === "expense") {
+      const d = expenseInput.parse(body);
+      await assertUsers(q, [d.payerId, ...d.consumerIds]);
+      await q(
+        `update expenses set payer_id = $2, amount = $3, category_id = $4, description = $5,
+           spent_at = date_trunc('milliseconds', coalesce($6::timestamptz, spent_at)), updated_by = $7, updated_at = now(), version = version + 1
+         where id = $1`,
+        [id, d.payerId, d.amount, d.categoryId, d.description, d.spentAt ?? null, actorId],
+      );
+      await q("delete from expense_shares where expense_id = $1", [id]);
+      await writeShares(q, id, d.amount, d.consumerIds);
+    } else if (kind === "transfer") {
+      const d = transferInput.parse(body);
+      await assertUsers(q, [d.fromUserId, d.toUserId]);
+      await q(
+        `update transfers set from_user_id = $2, to_user_id = $3, amount = $4, note = $5,
+           sent_at = date_trunc('milliseconds', coalesce($6::timestamptz, sent_at)), updated_by = $7, updated_at = now(), version = version + 1
+         where id = $1`,
+        [id, d.fromUserId, d.toUserId, d.amount, d.note, d.sentAt ?? null, actorId],
+      );
+    } else {
+      const d = riceInput.parse(body);
+      await assertUsers(q, [d.userId]);
+      await q(
+        `update rice_entries set user_id = $2, given_at = date_trunc('milliseconds', coalesce($3::timestamptz, given_at)), note = $4,
+           updated_by = $5, updated_at = now(), version = version + 1
+         where id = $1`,
+        [id, d.userId, d.givenAt ?? null, d.note, actorId],
+      );
+    }
+    const after = await snapshot(q, kind, id);
+    await audit(q, {
+      entity: kind,
+      entityId: id,
+      action: "update",
+      actorId,
+      actorName: await userName(q, actorId),
+      summary: await describe(q, kind, after),
+      before,
+      after,
+    });
+    return after;
+  });
+}
+
+/** Soft delete (deleted = true) or restore (deleted = false). Rows are never erased. */
+export async function setDeleted(kind: RecordKind, actorId: string, id: string, body: unknown, deleted: boolean) {
+  const { version } = versionInput.parse(body);
+  const { table } = TABLES[kind];
+  return withTx(async (q) => {
+    const before = await snapshot(q, kind, id, true);
+    assertVersion(before, version);
+    if (Boolean(before.deletedAt) === deleted) throw new HttpError(400, deleted ? "Already deleted" : "Not deleted");
+    await q(
+      deleted
+        ? `update ${table} set deleted_at = now(), deleted_by = $2, version = version + 1 where id = $1`
+        : `update ${table} set deleted_at = null, deleted_by = null, updated_by = $2, updated_at = now(),
+             version = version + 1 where id = $1`,
+      [id, actorId],
+    );
+    const after = await snapshot(q, kind, id);
+    await audit(q, {
+      entity: kind,
+      entityId: id,
+      action: deleted ? "delete" : "restore",
+      actorId,
+      actorName: await userName(q, actorId),
+      summary: await describe(q, kind, after),
+      before,
+      after,
+    });
+    return after;
+  });
+}
+
+async function writeShares(q: Query, expenseId: string, total: number, consumerIds: string[]) {
+  const shares = splitEqual(total, consumerIds);
+  await q(
+    `insert into expense_shares (expense_id, user_id, amount)
+     select $1, x.user_id, x.amount from unnest($2::uuid[], $3::bigint[]) as x(user_id, amount)`,
+    [expenseId, shares.map((s) => s.userId), shares.map((s) => s.amount)],
+  );
+}
+
+// ---------- lists ----------
+
+const LIST_ORDER = { expense: "spent_at", transfer: "sent_at", rice: "given_at" } as const;
+
+/** Keyset-paginated list (newest first), deleted rows included so they can be shown greyed out. */
+export async function listRecords(kind: RecordKind, url: URL) {
+  const { table, alias, cols } = TABLES[kind];
+  const col = `${alias}.${LIST_ORDER[kind]}`;
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 30, 100);
+  const cursor = url.searchParams.get("cursor"); // "<iso>|<id>"
+  const category = url.searchParams.get("category");
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (cursor) {
+    const [at, id] = cursor.split("|");
+    params.push(at, id);
+    where.push(`(${col}, ${alias}.id) < ($1::timestamptz, $2::uuid)`);
+  }
+  if (kind === "expense" && category) {
+    params.push(category);
+    where.push(`e.category_id = $${params.length}`);
+  }
+  params.push(limit + 1);
+  const rows = await query(
+    `select ${cols} from ${table} ${alias} ${where.length ? "where " + where.join(" and ") : ""}
+     order by ${col} desc, ${alias}.id desc limit $${params.length}`,
+    params,
+  );
+  const items = rows.slice(0, limit);
+  const last = items[items.length - 1];
+  const key = LIST_ORDER[kind] === "spent_at" ? "spentAt" : LIST_ORDER[kind] === "sent_at" ? "sentAt" : "givenAt";
+  return {
+    items,
+    nextCursor: rows.length > limit && last ? `${new Date(last[key]).toISOString()}|${last.id}` : null,
+  };
+}
