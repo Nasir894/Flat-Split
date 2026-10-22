@@ -7,6 +7,7 @@ import { ArrowLeft, Home, Hourglass, Loader2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { PinPad } from "@/components/pin-pad";
 import { MemberAvatar } from "@/components/member-avatar";
+import { Logo } from "@/components/logo";
 import { RecoveryCodeDialog } from "@/components/recovery-code-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,10 +26,12 @@ type SignupResult = { id: string; pending: boolean; recoveryCode: string };
 export default function LoginPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, error: loadError, refetch, isFetching } = useQuery({
     queryKey: ["members"],
     queryFn: () => api<MembersResponse>("/api/auth/members"),
     staleTime: 0,
+    retry: 1,
+    retryDelay: 300,
   });
   const [picked, setPicked] = useState<Member | null>(null);
   const [chosenMode, setMode] = useState<"pick" | "join" | "recover">("pick");
@@ -78,16 +81,22 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col items-center justify-center gap-8 px-4 py-10">
-      <div className="rise text-center">
-        <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-400 to-teal-700 text-xl font-extrabold text-white shadow-lg">
-          FS
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight">Flat Split</h1>
-        <p className="text-sm text-muted-foreground">Shared spending, split fairly.</p>
+      <div className="text-center">
+        <Logo animate loading={isLoading} className="mx-auto mb-3 size-16 drop-shadow-lg" />
+        <h1 className="rise text-2xl font-bold tracking-tight">Flat Split</h1>
+        <p className="rise text-sm text-muted-foreground">Shared spending, split fairly.</p>
       </div>
 
-      {isLoading || !data ? (
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      {!data && loadError ? (
+        <div className="rise w-full space-y-3 rounded-xl border border-negative/30 bg-negative/5 p-4 text-center">
+          <p className="font-medium">Couldn&apos;t reach the server</p>
+          <p className="text-sm break-words text-muted-foreground">{loadError.message}</p>
+          <Button variant="outline" className="w-full" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching && <Loader2 className="animate-spin" />} Try again
+          </Button>
+        </div>
+      ) : !data ? (
+        <p className="h-6 text-sm text-muted-foreground">Connecting…</p>
       ) : mode === "create" ? (
         <SignupForm create onDone={afterSignup} />
       ) : mode === "waiting" ? (

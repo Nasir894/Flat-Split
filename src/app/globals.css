@@ -151,3 +151,18 @@ body { overscroll-behavior-y: none; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; } }
+/* Logo animation: tile pops, roof draws, halves rise (≈0.7s total, GPU-only transforms) */
+.fs-logo .fs-tile, .fs-logo .fs-left, .fs-logo .fs-right { transform-box: fill-box; transform-origin: center; }
+.fs-logo-in .fs-tile { animation: fs-pop 0.35s cubic-bezier(0.3, 1.5, 0.6, 1) both; }
+.fs-logo-in .fs-roof { stroke-dasharray: 1; animation: fs-draw 0.4s 0.15s ease-out both; }
+.fs-logo-in .fs-left { animation: fs-rise 0.35s 0.3s cubic-bezier(0.3, 1.4, 0.6, 1) both; }
+.fs-logo-in .fs-right { animation: fs-rise 0.35s 0.4s cubic-bezier(0.3, 1.4, 0.6, 1) both; }
+.fs-logo-loading .fs-left { animation: fs-bob 0.9s 0.7s ease-in-out infinite; }
+.fs-logo-loading .fs-right { animation: fs-bob 0.9s 0.85s ease-in-out infinite; }
+@keyframes fs-pop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fs-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes fs-rise { from { transform: translateY(10px) scaleY(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fs-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .fs-logo * { animation: none !important; }
+}

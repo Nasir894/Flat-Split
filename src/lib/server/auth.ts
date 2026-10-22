@@ -4,10 +4,13 @@ import { promisify } from "node:util";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { HttpError } from "./http";
+import { env } from "./env";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
-const secret = new TextEncoder().encode(process.env.SESSION_SECRET);
+// Read lazily so a missing SESSION_SECRET fails loudly instead of signing with "undefined".
+const key = () => new TextEncoder().encode(env("SESSION_SECRET"));
 const COOKIE = "fs_session";
+const SIGNED_IN_HINT = "fs_in";
 const MAX_AGE = 60 * 60 * 24 * 180; // 180 days; the on-device PIN lock guards reopening
 
 export const MAX_ATTEMPTS = 5;
@@ -17,14 +20,14 @@ export const LOCK_MINUTES = 15;
 // a leaked database alone is not enough to brute-force PINs offline.
 export async function hashPin(pin: string): Promise<string> {
   const salt = randomBytes(16);
-  const hash = await scrypt(pin + process.env.SESSION_SECRET, salt, 32);
+  const hash = await scrypt(pin + env("SESSION_SECRET"), salt, 32);
   return `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
 }
 
 export async function verifyPin(pin: string, stored: string | null): Promise<boolean> {
   if (!stored) return false;
   const [, salt, hash] = stored.split("$");
-  const actual = await scrypt(pin + process.env.SESSION_SECRET, Buffer.from(salt, "base64"), 32);
+  const actual = await scrypt(pin + env("SESSION_SECRET"), Buffer.from(salt, "base64"), 32);
   return timingSafeEqual(actual, Buffer.from(hash, "base64"));
 }
 
@@ -34,7 +37,7 @@ export async function startSession(userId: string) {
     .setSubject(userId)
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE}s`)
-    .sign(secret);
+    .sign(key());
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -42,17 +45,27 @@ export async function startSession(userId: string) {
     path: "/",
     maxAge: MAX_AGE,
   });
+  // Non-secret hint readable by the page, so it can skip straight to sign-in when there is
+  // no session instead of waiting for a server round trip. Grants no access by itself.
+  (await cookies()).set(SIGNED_IN_HINT, "1", { sameSite: "lax", path: "/", maxAge: MAX_AGE });
+}
+
+/** Re-sets the sign-in hint for sessions created before the hint existed. */
+export async function setSignedInHint() {
+  (await cookies()).set(SIGNED_IN_HINT, "1", { sameSite: "lax", path: "/", maxAge: MAX_AGE });
 }
 
 export async function endSession() {
-  (await cookies()).delete(COOKIE);
+  const jar = await cookies();
+  jar.delete(COOKIE);
+  jar.delete(SIGNED_IN_HINT);
 }
 
 export async function sessionUserId(): Promise<string | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
+    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
     if (payload.typ === "pending") return null; // a pending token is never a real session
     return payload.sub ?? null;
   } catch {
@@ -70,7 +83,7 @@ export async function startPendingSession(userId: string) {
     .setSubject(userId)
     .setIssuedAt()
     .setExpirationTime("30d")
-    .sign(secret);
+    .sign(key());
   (await cookies()).set(PENDING_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -84,7 +97,7 @@ export async function pendingUserId(): Promise<string | null> {
   const token = (await cookies()).get(PENDING_COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
+    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
     return payload.typ === "pending" ? (payload.sub ?? null) : null;
   } catch {
     return null;

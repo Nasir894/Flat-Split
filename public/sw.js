@@ -1,5 +1,5 @@
 // Flat Split service worker: push notifications + light offline caching.
-const CACHE = "flat-split-v1";
+const CACHE = "flat-split-v2";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {

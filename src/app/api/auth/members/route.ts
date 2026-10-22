@@ -1,6 +1,6 @@
 import { query } from "@/lib/server/db";
 import { route } from "@/lib/server/http";
-import { pendingUserId, sessionUserId } from "@/lib/server/auth";
+import { pendingUserId, sessionUserId, setSignedInHint } from "@/lib/server/auth";
 
 // Data for the sign-in screen: joined members (names + colors), whether a house exists yet,
 // who is signed in on this device, and this device's own pending join request (if any).
@@ -14,6 +14,7 @@ export const GET = route(async () => {
     sessionUserId(),
     pendingUserId(),
   ]);
+  if (me) await setSignedInHint();
   let pending: { id: string; name: string } | null = null;
   if (pendingId) {
     const [p] = await query<{ id: string; name: string; status: string }>("select id, name, status from users where id = $1", [pendingId]);
