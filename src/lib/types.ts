@@ -35,7 +35,7 @@ export type Expense = Meta & {
   categoryId: string | null;
   description: string;
   spentAt: string;
-  shares: { userId: string; amount: number }[];
+  shares: { userId: string; amount: number; mode?: "equal" | "extra" | "exact"; adjust?: number }[];
   tourId: string | null;
 };
 export type Transfer = Meta & {
@@ -89,7 +89,7 @@ export type AuditEntry = {
   id: number;
   entity: string;
   entityId: string | null;
-  action: "create" | "update" | "delete" | "restore" | "import";
+  action: "create" | "update" | "delete" | "restore" | "import" | "approve" | "decline" | "start" | "close";
   actorId: string | null;
   summary: string;
   createdAt: string;

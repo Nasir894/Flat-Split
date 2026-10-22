@@ -4,7 +4,7 @@ import type { Query } from "./db";
 import { notifyOthers, notifyUsers } from "./push";
 
 export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house" | "tracker" | "tour";
-export type Action = "create" | "update" | "delete" | "restore" | "import";
+export type Action = "create" | "update" | "delete" | "restore" | "import" | "approve" | "decline" | "start" | "close";
 
 const URLS: Record<Entity, string> = {
   expense: "/expenses",
@@ -73,13 +73,27 @@ export async function audit(
 }
 
 // Each kind of change reads differently at a glance on the lock screen.
-const ICON: Record<Action, string> = { create: "➕", update: "✏️", delete: "🗑️", restore: "♻️", import: "📦" };
+const ICON: Record<Action, string> = {
+  create: "➕",
+  update: "✏️",
+  delete: "🗑️",
+  restore: "♻️",
+  import: "📦",
+  approve: "✅",
+  decline: "❌",
+  start: "🚀",
+  close: "🏁",
+};
 const VERB: Record<Action, string> = {
   create: "added",
   update: "edited",
   delete: "deleted",
   restore: "restored",
   import: "restored",
+  approve: "approved",
+  decline: "declined",
+  start: "started",
+  close: "closed",
 };
 const NOUN: Partial<Record<Entity, string>> = {
   expense: "an expense",

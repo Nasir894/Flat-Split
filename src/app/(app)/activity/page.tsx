@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { History, Pencil, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
+import { CheckCheck, Flag, History, Pencil, Plus, Rocket, RotateCcw, Trash2, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { markSeen } from "@/lib/seen";
 import { byDay, dayLabel } from "@/lib/dates";
@@ -13,15 +13,29 @@ import { useLookups } from "@/hooks/use-data";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, HistoryDialog, LoadMore } from "@/components/records";
 
-const ICON = { create: Plus, update: Pencil, delete: Trash2, restore: RotateCcw, import: Upload };
+const ICON = { create: Plus, update: Pencil, delete: Trash2, restore: RotateCcw, import: Upload, approve: CheckCheck, decline: X, start: Rocket, close: Flag };
 const TONE = {
   create: "bg-positive/15 text-positive",
   update: "bg-chart-1/15 text-chart-1",
   delete: "bg-negative/15 text-negative",
   restore: "bg-chart-4/15 text-chart-4",
   import: "bg-chart-7/15 text-chart-7",
+  approve: "bg-positive/15 text-positive",
+  decline: "bg-negative/15 text-negative",
+  start: "bg-brand/20 text-foreground",
+  close: "bg-foreground/10 text-foreground",
 };
-const VERB = { create: "added", update: "edited", delete: "deleted", restore: "restored", import: "imported a backup" };
+const VERB = {
+  create: "added",
+  update: "edited",
+  delete: "deleted",
+  restore: "restored",
+  import: "imported a backup",
+  approve: "approved",
+  decline: "declined",
+  start: "started",
+  close: "closed",
+};
 const WHAT: Record<string, string> = {
   expense: "an expense",
   transfer: "a transfer",

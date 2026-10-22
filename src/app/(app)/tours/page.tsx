@@ -6,7 +6,6 @@ import { Luggage, Plus } from "lucide-react";
 import { useLookups, useSummary } from "@/hooks/use-data";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MoneyTabs } from "@/components/money-tabs";
 import { TourCard } from "@/components/tour-card";
 import { TourDownloads } from "@/components/tour-downloads";
 import { TourForm } from "@/components/forms/tour-form";
@@ -25,8 +24,6 @@ export default function ToursPage() {
 
   return (
     <div className="space-y-5">
-      {!isGuest && <MoneyTabs />}
-
       {!isGuest && (
         <Button className="w-full" onClick={() => setPlanning(true)}>
           <Plus /> Plan a tour

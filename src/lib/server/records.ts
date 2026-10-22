@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { formatTaka, splitEqual } from "@/lib/money";
+import { computeSplit, formatTaka, type SplitEntry } from "@/lib/money";
 import { query, withTx, type Query, type Row } from "./db";
 import { HttpError } from "./http";
 import { audit, userName } from "./audit";
@@ -20,6 +20,20 @@ export const expenseInput = z.object({
   description: z.string().trim().max(200).default(""),
   spentAt: when,
   consumerIds: z.array(z.uuid()).min(1, "Pick at least one person who consumed it"),
+  /**
+   * Optional per-person split (restaurant bills): equal / extra (± on top of the equal part) /
+   * exact. When given, it decides who consumed it; otherwise everyone in consumerIds splits equally.
+   */
+  split: z
+    .array(
+      z.object({
+        userId: z.uuid(),
+        mode: z.enum(["equal", "extra", "exact"]),
+        value: z.number().int().min(-100_000_000_00).max(100_000_000_00),
+      }),
+    )
+    .min(1)
+    .optional(),
   /** Set to put the expense on an active tour instead of the home fund. */
   tourId: z.uuid().nullish(),
 });
@@ -53,7 +67,7 @@ export const EXPENSE_COLS = `
   e.description, e.spent_at as "spentAt", e.created_by as "createdBy", e.created_at as "createdAt",
   e.updated_by as "updatedBy", e.updated_at as "updatedAt", e.deleted_by as "deletedBy",
   e.deleted_at as "deletedAt", e.version, e.tour_id as "tourId",
-  coalesce((select json_agg(json_build_object('userId', s.user_id, 'amount', s.amount::int) order by s.user_id)
+  coalesce((select json_agg(json_build_object('userId', s.user_id, 'amount', s.amount::int, 'mode', s.mode, 'adjust', s.adjust::int) order by s.user_id)
             from expense_shares s where s.expense_id = e.id), '[]'::json) as shares`;
 
 export const TRANSFER_COLS = `
@@ -195,7 +209,7 @@ export async function createRecord(kind: RecordKind, actor: Actor, body: unknown
     let id: string;
     let tour: TourCtx | null = null;
     if (kind === "expense") {
-      const d = expenseInput.parse(body);
+      const d = parseExpense(body);
       if (d.tourId) {
         tour = await tourAccess(q, d.tourId, actor, true);
         assertParticipants(tour, [d.payerId, ...d.consumerIds]);
@@ -208,7 +222,7 @@ export async function createRecord(kind: RecordKind, actor: Actor, body: unknown
          values ($1, $2, $3, $4, date_trunc('milliseconds', coalesce($5::timestamptz, now())), $6, $7) returning id`,
         [d.payerId, d.amount, d.categoryId, d.description, d.spentAt ?? null, actor.id, d.tourId ?? null],
       );
-      await writeShares(q, id, d.amount, d.consumerIds);
+      await writeShares(q, id, d.amount, d.entries);
     } else if (kind === "transfer") {
       const d = transferInput.parse(body);
       if (d.tourId) {
@@ -278,7 +292,7 @@ export async function updateRecord(kind: RecordKind, actor: Actor, id: string, b
     guestMayChange(actor, before);
 
     if (kind === "expense") {
-      const d = expenseInput.parse(body);
+      const d = parseExpense(body);
       if (tour) assertParticipants(tour, [d.payerId, ...d.consumerIds]);
       else await assertHomeMembers(q, [d.payerId, ...d.consumerIds]);
       await q(
@@ -288,7 +302,7 @@ export async function updateRecord(kind: RecordKind, actor: Actor, id: string, b
         [id, d.payerId, d.amount, d.categoryId, d.description, d.spentAt ?? null, actor.id],
       );
       await q("delete from expense_shares where expense_id = $1", [id]);
-      await writeShares(q, id, d.amount, d.consumerIds);
+      await writeShares(q, id, d.amount, d.entries);
     } else if (kind === "transfer") {
       const d = transferInput.parse(body);
       if (tour) assertParticipants(tour, [d.fromUserId, d.toUserId]);
@@ -365,15 +379,34 @@ export async function setDeleted(kind: RecordKind, actor: Actor, id: string, bod
   });
 }
 
-async function writeShares(q: Query, expenseId: string, total: number, consumerIds: string[]) {
-  const shares = splitEqual(total, consumerIds);
-  await q(
-    `insert into expense_shares (expense_id, user_id, amount)
-     select $1, x.user_id, x.amount from unnest($2::uuid[], $3::bigint[]) as x(user_id, amount)`,
-    [expenseId, shares.map((s) => s.userId), shares.map((s) => s.amount)],
-  );
+/** Validates an expense and turns it into split entries (plain equal split when no `split` is given). */
+function parseExpense(body: unknown) {
+  const d = expenseInput.parse(body);
+  const entries: SplitEntry[] = d.split
+    ? d.split.map((e) => ({ userId: e.userId, mode: e.mode, value: e.mode === "equal" ? 0 : e.value }))
+    : [...new Set(d.consumerIds)].map((userId) => ({ userId, mode: "equal" as const, value: 0 }));
+  if (new Set(entries.map((e) => e.userId)).size !== entries.length) throw new HttpError(400, "Someone is listed twice in the split");
+  return { ...d, entries, consumerIds: entries.map((e) => e.userId) };
 }
 
+/** Stores each person's share (computed on the server, so it always adds up to the bill). */
+async function writeShares(q: Query, expenseId: string, total: number, entries: SplitEntry[]) {
+  const result = computeSplit(total, entries);
+  if (!result.ok) throw new HttpError(400, result.error);
+  const byUser = new Map(entries.map((e) => [e.userId, e]));
+  await q(
+    `insert into expense_shares (expense_id, user_id, amount, mode, adjust)
+     select $1, x.user_id, x.amount, x.mode, x.adjust
+     from unnest($2::uuid[], $3::bigint[], $4::text[], $5::bigint[]) as x(user_id, amount, mode, adjust)`,
+    [
+      expenseId,
+      result.shares.map((s) => s.userId),
+      result.shares.map((s) => s.amount),
+      result.shares.map((s) => byUser.get(s.userId)!.mode),
+      result.shares.map((s) => byUser.get(s.userId)!.value),
+    ],
+  );
+}
 // ---------- lists ----------
 
 const LIST_ORDER = { expense: "spent_at", transfer: "sent_at", rice: "given_at" } as const;
@@ -451,16 +484,15 @@ export async function respondTransfer(actor: Actor, id: string, body: unknown) {
     const after = await snapshot(q, "transfer", id);
     const actorName = await userName(q, actor.id);
     const n = await names(q, [after.fromUserId]);
+    // Say what actually happened: an approval (of an edited payment, if it was changed), not an edit.
+    const what = `${n[after.fromUserId]}'s ${before.updatedAt ? "edited " : ""}${before.settlement ? "settlement " : ""}payment`;
     await audit(q, {
       entity: "transfer",
       entityId: id,
-      action: "update",
+      action: decision === "approve" ? "approve" : "decline",
       actorId: actor.id,
       actorName,
-      title:
-        decision === "approve"
-          ? `✅ ${actorName} confirmed ${n[after.fromUserId]}'s payment`
-          : `❌ ${actorName} declined ${n[after.fromUserId]}'s payment`,
+      title: decision === "approve" ? `✅ ${actorName} approved ${what}` : `❌ ${actorName} declined ${what}`,
       summary: await describe(q, "transfer", after),
       before,
       after,

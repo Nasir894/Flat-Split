@@ -285,3 +285,11 @@ create index if not exists expenses_tour on expenses (tour_id);
 alter table transfers add column if not exists tour_id uuid references tours(id);
 alter table transfers add column if not exists settlement boolean not null default false;
 create index if not exists transfers_tour on transfers (tour_id);
+
+-- How each person's share was set: 'equal', 'extra' (± amount on top of the equal part) or
+-- 'exact' (their own total). `adjust` holds the ± or exact amount in poisha.
+alter table expense_shares add column if not exists mode text not null default 'equal';
+alter table expense_shares add column if not exists adjust bigint not null default 0;
+do $$ begin
+  alter table expense_shares add constraint expense_shares_mode_check check (mode in ('equal', 'extra', 'exact'));
+exception when duplicate_object then null; end $$;

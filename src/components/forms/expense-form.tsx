@@ -6,13 +6,14 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLookups, useRecordMutation } from "@/hooks/use-data";
 import { api } from "@/lib/api";
-import { formatTaka, splitEqual, toPoisha } from "@/lib/money";
+import { computeSplit, formatTaka, toPoisha, type SplitEntry, type SplitMode } from "@/lib/money";
 import type { Category, Expense } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserAvatar } from "@/components/member-avatar";
+import { Switch } from "@/components/ui/switch";
 import { AmountInput, cleanAmount, FormDrawer, fromDateInput, toDateInput } from "./shared";
 
 // The last place someone added an expense to (home or an active tour) stays selected until they
@@ -71,8 +72,29 @@ function ExpenseFields({ expense, tourId, onDone }: { expense?: Expense; tourId?
     setPayerId(next.some((u) => u.id === meId) ? meId : (next[0]?.id ?? meId));
   };
 
+  // Adjusted split (restaurant bills): per person equal / ± extra / exact.
+  type Adj = { mode: SplitMode; amount: string; less: boolean };
+  const [adjust, setAdjust] = useState(() => Boolean(expense?.shares.some((s) => s.mode && s.mode !== "equal")));
+  const [adj, setAdj] = useState<Record<string, Adj>>(() =>
+    Object.fromEntries(
+      (expense?.shares ?? []).map((s) => [
+        s.userId,
+        { mode: s.mode ?? "equal", amount: s.adjust ? String(Math.abs(s.adjust) / 100) : "", less: (s.adjust ?? 0) < 0 },
+      ]),
+    ),
+  );
+  const adjOf = (id: string): Adj => adj[id] ?? { mode: "equal", amount: "", less: false };
+  const setAdjFor = (id: string, patch: Partial<Adj>) => setAdj((a) => ({ ...a, [id]: { ...adjOf(id), ...patch } }));
+
   const total = toPoisha(amount || 0);
-  const shares = consumers.length && total > 0 ? splitEqual(total, consumers) : [];
+  const entries: SplitEntry[] = consumers.map((userId) => {
+    const a = adjOf(userId);
+    if (!adjust || a.mode === "equal") return { userId, mode: "equal", value: 0 };
+    const v = toPoisha(a.amount || 0);
+    return { userId, mode: a.mode, value: a.mode === "extra" && a.less ? -v : v };
+  });
+  const result = consumers.length && total > 0 ? computeSplit(total, entries, (id) => userById.get(id)?.name ?? "Someone") : null;
+  const shares = result?.ok ? result.shares : [];
   const toggle = (id: string) =>
     setConsumers((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
 
@@ -80,6 +102,7 @@ function ExpenseFields({ expense, tourId, onDone }: { expense?: Expense; tourId?
     e.preventDefault();
     if (total <= 0) return toast.error("Enter an amount");
     if (!consumers.length) return toast.error("Pick who consumed it");
+    if (result && !result.ok) return toast.error(result.error);
     const body = {
       payerId,
       amount: total,
@@ -87,6 +110,7 @@ function ExpenseFields({ expense, tourId, onDone }: { expense?: Expense; tourId?
       description,
       spentAt: fromDateInput(date, expense?.spentAt),
       consumerIds: consumers,
+      split: adjust ? entries : undefined,
       version: expense?.version,
       tourId: target === "home" ? null : target,
     };
@@ -206,11 +230,24 @@ function ExpenseFields({ expense, tourId, onDone }: { expense?: Expense; tourId?
                     {on && <Check className="size-3.5" />}
                   </span>
                 </button>
+                {adjust && on && <AdjustRow value={adjOf(u.id)} onChange={(p) => setAdjFor(u.id, p)} />}
               </li>
             );
           })}
         </ul>
-        {total > 0 && consumers.length > 0 && (
+        <label className="flex items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2">
+          <span>
+            <span className="block text-sm font-medium">Adjust amounts</span>
+            <span className="block text-[11px] text-muted-foreground">Someone ate more or less, or you know their exact total</span>
+          </span>
+          <Switch checked={adjust} onCheckedChange={setAdjust} aria-label="Adjust amounts" />
+        </label>
+        {adjust && result && (
+          <p className={cn("text-xs font-medium", result.ok ? "text-positive" : "text-negative")}>
+            {result.ok ? `✓ Adds up to ${formatTaka(total)}` : result.error}
+          </p>
+        )}
+        {total > 0 && consumers.length > 0 && result?.ok && (
           <p className="text-xs text-muted-foreground">
             {people.find((u) => u.id === payerId)?.name} gets back{" "}
             <span className="font-medium text-positive">
@@ -309,5 +346,57 @@ function TargetChip({ active, onClick, children }: { active: boolean; onClick: (
     >
       {children}
     </button>
+  );
+}
+/** Per-person split setting: Equal, ± Extra (ate more / less) or Exact total. */
+function AdjustRow({
+  value,
+  onChange,
+}: {
+  value: { mode: SplitMode; amount: string; less: boolean };
+  onChange: (p: Partial<{ mode: SplitMode; amount: string; less: boolean }>) => void;
+}) {
+  const modes: [SplitMode, string][] = [
+    ["equal", "Equal"],
+    ["extra", "± Extra"],
+    ["exact", "Exact"],
+  ];
+  return (
+    <div className="space-y-2 px-3 pb-2.5 pl-13">
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-0.5 text-xs">
+        {modes.map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => onChange({ mode: m })}
+            className={cn("rounded-md py-1 font-medium transition", value.mode === m ? "bg-background shadow-sm" : "text-muted-foreground")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {value.mode !== "equal" && (
+        <div className="flex items-center gap-2">
+          {value.mode === "extra" && (
+            <div className="grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-muted p-0.5 text-xs">
+              <button type="button" onClick={() => onChange({ less: false })} className={cn("rounded-md px-2 py-1", !value.less ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}>
+                Ate more
+              </button>
+              <button type="button" onClick={() => onChange({ less: true })} className={cn("rounded-md px-2 py-1", value.less ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}>
+                Ate less
+              </button>
+            </div>
+          )}
+          <Input
+            inputMode="decimal"
+            placeholder={value.mode === "exact" ? "Their total ৳" : "How much ৳"}
+            value={value.amount}
+            onChange={(e) => onChange({ amount: cleanAmount(e.target.value) })}
+            className="h-8 text-sm"
+            aria-label={value.mode === "exact" ? "Exact amount" : "Extra amount"}
+          />
+        </div>
+      )}
+    </div>
   );
 }

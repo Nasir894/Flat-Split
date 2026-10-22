@@ -181,7 +181,19 @@ export function HistoryDialog({ entityId, onClose }: { entityId: string | null; 
                   <span className="absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-background bg-primary" />
                   <p>
                     <span className="font-medium">{name(a.actorId)}</span>{" "}
-                    {{ create: "created", update: "edited", delete: "deleted", restore: "restored", import: "imported" }[a.action]}{" "}
+                    {
+                      {
+                        create: "created",
+                        update: "edited",
+                        delete: "deleted",
+                        restore: "restored",
+                        import: "imported",
+                        approve: "approved it",
+                        decline: "declined it",
+                        start: "started it",
+                        close: "closed it",
+                      }[a.action]
+                    }{" "}
                     <span className="text-muted-foreground">· {format(new Date(a.createdAt), "d MMM yyyy, h:mm a")}</span>
                   </p>
                   {changes.length > 0 && (

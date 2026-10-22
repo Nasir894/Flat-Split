@@ -18,7 +18,7 @@ export async function exportBackup() {
                   spent_at as "spentAt", created_by as "createdBy", created_at as "createdAt", updated_by as "updatedBy",
                   updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version, tour_id as "tourId"
            from expenses order by spent_at`),
-    query(`select expense_id as "expenseId", user_id as "userId", amount::float8 as amount from expense_shares`),
+    query(`select expense_id as "expenseId", user_id as "userId", amount::float8 as amount, mode, adjust::float8 as adjust from expense_shares`),
     query(`select id, from_user_id as "fromUserId", to_user_id as "toUserId", amount::float8 as amount, note,
                   sent_at as "sentAt", created_by as "createdBy", created_at as "createdAt", updated_by as "updatedBy",
                   updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version,
@@ -110,7 +110,15 @@ const backupSchema = z.object({
       tourId: opt(id),
     }),
   ),
-  expenseShares: z.array(z.object({ expenseId: id, userId: id, amount: z.number().int().nonnegative() })),
+  expenseShares: z.array(
+    z.object({
+      expenseId: id,
+      userId: id,
+      amount: z.number().int().nonnegative(),
+      mode: z.enum(["equal", "extra", "exact"]).default("equal"),
+      adjust: z.number().int().default(0),
+    }),
+  ),
   transfers: z.array(
     z.object({
       id,
@@ -330,9 +338,9 @@ export async function importBackup(actorId: string, raw: unknown) {
       })),
     );
     await bulk(
-      `insert into expense_shares (expense_id, user_id, amount)
-       select * from json_to_recordset($1::json) as x(expense_id uuid, user_id uuid, amount bigint)`,
-      b.expenseShares.map((s) => ({ expense_id: s.expenseId, user_id: mu(s.userId), amount: s.amount })),
+      `insert into expense_shares (expense_id, user_id, amount, mode, adjust)
+       select * from json_to_recordset($1::json) as x(expense_id uuid, user_id uuid, amount bigint, mode text, adjust bigint)`,
+      b.expenseShares.map((s) => ({ expense_id: s.expenseId, user_id: mu(s.userId), amount: s.amount, mode: s.mode, adjust: s.adjust })),
     );
     await bulk(
       `insert into transfers (id, from_user_id, to_user_id, amount, note, sent_at, created_by, created_at,

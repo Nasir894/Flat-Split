@@ -4,6 +4,8 @@ Track shared flat spending, transfers between flatmates and rice turns. Next.js 
 
 ## How money works
 
+**Restaurant bills (Adjust amounts):** in an expense, each person can be *Equal*, *± Extra* (ate more or less by a known amount) or *Exact* (their own total is known). Exact amounts are taken off the bill along with all the extras, the rest is split equally among the others, and each of them then gets their extra on top. The shares always add up to the bill.
+
 - An expense has a payer and a set of consumers (everyone by default). The amount is split equally between consumers (leftover poisha go to the first few, so totals always match exactly).
 - **Balance = paid − consumed + transfers sent − transfers received.** Positive means the flat owes you, negative means you owe.
   - Example: A pays ৳200 for chicken that A, B, C and D eat → A +150, B/C/D −50 each.

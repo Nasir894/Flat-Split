@@ -203,7 +203,7 @@ export async function startTour(actorId: string, id: string) {
     await audit(q, {
       entity: "tour",
       entityId: id,
-      action: "update",
+      action: "start",
       actorId,
       actorName,
       title: `${after.emoji} ${after.name} has started!`,
@@ -240,7 +240,7 @@ export async function closeTour(actorId: string, id: string) {
     await audit(q, {
       entity: "tour",
       entityId: id,
-      action: "update",
+      action: "close",
       actorId,
       actorName,
       title: `${after.emoji} ${after.name} is closed`,
