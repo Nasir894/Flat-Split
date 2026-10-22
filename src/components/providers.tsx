@@ -9,6 +9,9 @@ import { Toaster } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 
 export const CACHE_KEY = "flat-split-cache";
+// Bump whenever an API response changes shape: saved data from older versions is then discarded
+// instead of being fed to new code (which is what crashed the Stats page).
+const CACHE_VERSION = "v3";
 
 function makeClient() {
   return new QueryClient({
@@ -51,14 +54,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [client]);
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
       <PersistQueryClientProvider
         client={client}
-        persistOptions={{ persister, maxAge: 1000 * 60 * 60 * 24 * 7, buster: "v1" }}
+        persistOptions={{ persister, maxAge: 1000 * 60 * 60 * 24 * 7, buster: CACHE_VERSION }}
       >
         {children}
       </PersistQueryClientProvider>
-      <Toaster position="top-center" richColors closeButton />
+      <Toaster position="top-center" />
     </ThemeProvider>
   );
 }

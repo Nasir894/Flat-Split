@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { History, Pencil, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
+import { markSeen } from "@/lib/seen";
 import { byDay, dayLabel } from "@/lib/dates";
 import type { AuditEntry, Page } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,8 @@ export default function ActivityPage() {
     getNextPageParam: (l) => (l.nextCursor ? String(l.nextCursor) : undefined),
   });
   const items = q.data?.pages.flatMap((p) => p.items) ?? [];
+  const newest = items[0]?.id;
+  useEffect(() => markSeen("activity", newest), [newest]);
 
   if (q.isLoading && !q.data) return <Skeleton className="h-64" />;
   if (!items.length) return <EmptyState icon={History} text="Nothing has happened yet." />;

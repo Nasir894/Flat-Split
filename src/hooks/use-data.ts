@@ -9,7 +9,29 @@ import type { Category, Page, Summary, User } from "@/lib/types";
 export type Kind = "expenses" | "transfers" | "rice";
 
 export function useSummary() {
-  return useQuery({ queryKey: ["summary"], queryFn: () => api<Summary>("/api/summary") });
+  return useQuery({
+    queryKey: ["summary"],
+    queryFn: () => api<Summary>("/api/summary"),
+    // Keep badges (chat, approvals) fresh while the app is open.
+    refetchInterval: 30_000,
+  });
+}
+
+/** Receiver approves or declines a transfer. */
+export function useRespondTransfer() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (a: { id: string; version: number; decision: "approve" | "decline" }) =>
+      api(`/api/records/transfers/${a.id}/respond`, { body: { decision: a.decision, version: a.version } }),
+    onSuccess: (_d, a) => {
+      toast.success(a.decision === "approve" ? "Payment confirmed" : "Payment declined");
+      invalidate();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+      invalidate();
+    },
+  });
 }
 
 /** Lookups derived from the summary: users by id, categories by id, my id. */

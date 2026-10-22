@@ -35,7 +35,17 @@ export type Expense = Meta & {
   spentAt: string;
   shares: { userId: string; amount: number }[];
 };
-export type Transfer = Meta & { fromUserId: string; toUserId: string; amount: number; note: string; sentAt: string };
+export type Transfer = Meta & {
+  fromUserId: string;
+  toUserId: string;
+  amount: number;
+  note: string;
+  sentAt: string;
+  /** pending = waiting for the receiver to confirm; only approved transfers count. */
+  status: "pending" | "approved" | "declined";
+  respondedBy: string | null;
+  respondedAt: string | null;
+};
 export type RiceEntry = Meta & { userId: string; givenAt: string; note: string };
 
 export type Summary = {
@@ -45,6 +55,9 @@ export type Summary = {
   categories: Category[];
   balances: Balance[];
   rice: RiceStatus;
+  awaitingMe: Transfer[];
+  lastChat: { id: number; userId: string; createdAt: string } | null;
+  lastActivity: { id: number; userId: string | null } | null;
 };
 
 export type Page<T> = { items: T[]; nextCursor: string | null };
@@ -73,3 +86,4 @@ export type Analytics = {
   /** Same-length period right before this one. */
   previous: { total: number; count: number };
 };
+export type ChatMessage = { id: number; userId: string; body: string; createdAt: string; deleted: boolean };

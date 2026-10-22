@@ -20,7 +20,8 @@ export async function exportBackup() {
     query(`select expense_id as "expenseId", user_id as "userId", amount::float8 as amount from expense_shares`),
     query(`select id, from_user_id as "fromUserId", to_user_id as "toUserId", amount::float8 as amount, note,
                   sent_at as "sentAt", created_by as "createdBy", created_at as "createdAt", updated_by as "updatedBy",
-                  updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version
+                  updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version,
+                  status, responded_by as "respondedBy", responded_at as "respondedAt"
            from transfers order by sent_at`),
     query(`select id, user_id as "userId", given_at as "givenAt", note, created_by as "createdBy",
                   created_at as "createdAt", updated_by as "updatedBy", updated_at as "updatedAt",
@@ -87,7 +88,19 @@ const backupSchema = z.object({
   ),
   expenseShares: z.array(z.object({ expenseId: id, userId: id, amount: z.number().int().nonnegative() })),
   transfers: z.array(
-    z.object({ id, fromUserId: id, toUserId: id, amount: z.number().int().positive(), note: z.string(), sentAt: ts, ...meta }),
+    z.object({
+      id,
+      fromUserId: id,
+      toUserId: id,
+      amount: z.number().int().positive(),
+      note: z.string(),
+      sentAt: ts,
+      ...meta,
+      // Older backups have no status: those transfers were all counted.
+      status: z.enum(["pending", "approved", "declined"]).default("approved"),
+      respondedBy: opt(id),
+      respondedAt: opt(ts),
+    }),
   ),
   riceEntries: z.array(z.object({ id, userId: id, givenAt: ts, note: z.string(), ...meta })),
   auditLog: z
@@ -203,9 +216,9 @@ export async function importBackup(actorId: string, raw: unknown) {
     );
     await bulk(
       `insert into transfers (id, from_user_id, to_user_id, amount, note, sent_at, created_by, created_at,
-                              updated_by, updated_at, deleted_by, deleted_at, version)
+                              updated_by, updated_at, deleted_by, deleted_at, version, status, responded_by, responded_at)
        select * from json_to_recordset($1::json) as x(id uuid, from_user_id uuid, to_user_id uuid, amount bigint,
-         note text, sent_at timestamptz, ${META_COLS})`,
+         note text, sent_at timestamptz, ${META_COLS}, status text, responded_by uuid, responded_at timestamptz)`,
       b.transfers.map((t) => ({
         id: t.id,
         from_user_id: mu(t.fromUserId),
@@ -214,6 +227,9 @@ export async function importBackup(actorId: string, raw: unknown) {
         note: t.note,
         sent_at: t.sentAt,
         ...metaRow(t),
+        status: t.status,
+        responded_by: mu(t.respondedBy),
+        responded_at: t.respondedAt,
       })),
     );
     await bulk(

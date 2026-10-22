@@ -23,8 +23,8 @@ export function Logo({
     >
       <defs>
         <linearGradient id="fs-bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#2dd4bf" />
-          <stop offset="1" stopColor="#0f766e" />
+          <stop offset="0" stopColor="#ff8a3d" />
+          <stop offset="1" stopColor="#7a2508" />
         </linearGradient>
       </defs>
       <rect className="fs-tile" width="64" height="64" rx="16" fill="url(#fs-bg)" />

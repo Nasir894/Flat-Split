@@ -184,3 +184,21 @@ from (values
   ('Rent', '🏠'), ('Other', '📦')
 ) as v(name, emoji)
 where not exists (select 1 from categories where is_default);
+
+-- Transfers need the receiver's OK before they count: pending → approved / declined.
+alter table transfers add column if not exists status text not null default 'approved';
+alter table transfers add column if not exists responded_by uuid references users(id);
+alter table transfers add column if not exists responded_at timestamptz;
+do $$ begin
+  alter table transfers add constraint transfers_status_check check (status in ('pending', 'approved', 'declined'));
+exception when duplicate_object then null; end $$;
+
+-- Group chat: text and emoji only (no files). Members can delete their own messages (soft).
+create table if not exists chat_messages (
+  id bigserial primary key,
+  user_id uuid not null references users(id) on delete cascade,
+  body text not null check (char_length(body) between 1 and 1000),
+  created_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+create index if not exists chat_messages_created on chat_messages (id desc);

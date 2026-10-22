@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", var(--font-geist), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -27,6 +27,9 @@
   --color-chart-7: var(--chart-7);
   --color-chart-8: var(--chart-8);
   --color-positive: var(--positive);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-copper: var(--copper);
   --color-negative: var(--negative);
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -54,10 +57,30 @@
 }
 
 :root {
-  --primary: oklch(0.55 0.13 172);
-  --primary-foreground: oklch(0.99 0 0);
-  --positive: oklch(0.56 0.15 155);
-  --negative: oklch(0.58 0.21 25);
+  --background: #f4f4f2;
+  --foreground: #0b0b0b;
+  --card: #ffffff;
+  --card-foreground: #0b0b0b;
+  --popover: #ffffff;
+  --popover-foreground: #0b0b0b;
+  /* Aurex light: black controls with the neon yellow as their text */
+  --primary: #0b0b0b;
+  --primary-foreground: #eff323;
+  --brand: #eff323;
+  --brand-foreground: #000000;
+  --copper: #d9661f;
+  --secondary: #ececea;
+  --secondary-foreground: #0b0b0b;
+  --muted: #ececea;
+  --muted-foreground: #6b6b68;
+  --accent: #ececea;
+  --accent-foreground: #0b0b0b;
+  --destructive: #e5484d;
+  --border: rgb(0 0 0 / 0.08);
+  --input: rgb(0 0 0 / 0.12);
+  --ring: rgb(0 0 0 / 0.35);
+  --positive: #16a34a;
+  --negative: #e5484d;
   --chart-1: #2a78d6;
   --chart-2: #eb6834;
   --chart-3: #1baf7a;
@@ -66,38 +89,42 @@
   --chart-6: #008300;
   --chart-7: #6250d6;
   --chart-8: #e34948;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 1rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b0b0b;
+  --sidebar-primary: #0b0b0b;
+  --sidebar-primary-foreground: #eff323;
+  --sidebar-accent: #ececea;
+  --sidebar-accent-foreground: #0b0b0b;
+  --sidebar-border: rgb(0 0 0 / 0.08);
+  --sidebar-ring: rgb(0 0 0 / 0.35);
 }
 
 .dark {
-  --primary: oklch(0.72 0.13 172);
-  --primary-foreground: oklch(0.18 0.03 172);
-  --positive: oklch(0.75 0.16 155);
-  --negative: oklch(0.72 0.17 22);
+  /* Aurex dark: true black, #111 surfaces, neon yellow accent, copper glow */
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #111111;
+  --card-foreground: #ffffff;
+  --popover: #151515;
+  --popover-foreground: #ffffff;
+  --primary: #eff323;
+  --primary-foreground: #000000;
+  --brand: #eff323;
+  --brand-foreground: #000000;
+  --copper: #e0702e;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #ffffff;
+  --muted: #1a1a1a;
+  --muted-foreground: #8b8b8b;
+  --accent: #1f1f1f;
+  --accent-foreground: #ffffff;
+  --destructive: #ff5a5f;
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.1);
+  --ring: rgb(239 243 35 / 0.5);
+  --positive: #4ade80;
+  --negative: #ff6b5e;
   --chart-1: #3987e5;
   --chart-2: #d95926;
   --chart-3: #199e70;
@@ -106,32 +133,15 @@
   --chart-6: #008300;
   --chart-7: #9085e9;
   --chart-8: #e66767;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: #111111;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #eff323;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #1f1f1f;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: rgb(239 243 35 / 0.5);
 }
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -165,4 +175,24 @@ body { overscroll-behavior-y: none; }
 @keyframes fs-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) {
   .fs-logo * { animation: none !important; }
+}
+/* Aurex hero: copper glow rising behind the headline number (same in light & dark) */
+.aurex-hero {
+  color: #fff;
+  background:
+    radial-gradient(120% 95% at 50% -15%, #e4732c 0%, #a3431a 22%, #4a1a08 45%, #160a05 65%, #0b0b0b 85%);
+  border: 1px solid rgb(255 255 255 / 0.06);
+}
+.aurex-hero .hero-muted { color: rgb(255 255 255 / 0.62); }
+.aurex-tile {
+  background: rgb(255 255 255 / 0.06);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  backdrop-filter: blur(8px);
+}
+/* Page-top glow behind the header, like the Aurex screens */
+.aurex-glow {
+  background: radial-gradient(90% 60% at 50% -20%, rgb(224 112 46 / 0.35), transparent 70%);
+}
+.dark .aurex-glow {
+  background: radial-gradient(90% 60% at 50% -20%, rgb(224 112 46 / 0.45), transparent 70%);
 }

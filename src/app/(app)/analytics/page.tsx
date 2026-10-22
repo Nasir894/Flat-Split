@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserAvatar } from "@/components/member-avatar";
+import { Amount } from "@/components/amount";
 import type { Slice } from "@/components/analytics-charts";
 
 // Recharts is only downloaded when this page opens.
@@ -75,8 +76,8 @@ export default function AnalyticsPage() {
     placeholderData: (prev) => prev,
   });
 
-  const total = data?.totals.total ?? 0;
-  const prevTotal = data?.previous.total ?? 0;
+  const total = data?.totals?.total ?? 0;
+  const prevTotal = data?.previous?.total ?? 0;
   const change = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : null;
   const average = Math.round(total / days);
 
@@ -168,7 +169,7 @@ export default function AnalyticsPage() {
       ) : (
         <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-70")}>
           {/* Headline */}
-          <Card className="rise overflow-hidden border-0 bg-gradient-to-br from-teal-500 to-teal-700 text-white shadow-lg">
+          <Card className="aurex-hero rise overflow-hidden rounded-[1.75rem] shadow-xl">
             <CardContent className="space-y-3">
               <div>
                 <p className="text-sm text-white/80">
@@ -177,7 +178,7 @@ export default function AnalyticsPage() {
                     ? `${format(from, "d MMM")} – ${format(subDays(to, 1), "d MMM")}`
                     : presetInfo.label.toLowerCase()}
                 </p>
-                <p className="text-4xl font-bold tracking-tight tabular">{formatTaka(total)}</p>
+                <Amount poisha={total} className="block text-[2.6rem] leading-tight font-bold" />
                 {change !== null ? (
                   <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-xs">
                     {change >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
@@ -189,8 +190,8 @@ export default function AnalyticsPage() {
               </div>
               <div className="grid grid-cols-3 gap-2 border-t border-white/20 pt-3 text-center">
                 <Stat label="Per day" value={formatTaka(average)} />
-                <Stat label="Expenses" value={String(data?.totals.count ?? 0)} />
-                <Stat label="Days with spending" value={`${data?.totals.activeDays ?? 0}/${days}`} />
+                <Stat label="Expenses" value={String(data?.totals?.count ?? 0)} />
+                <Stat label="Days with spending" value={`${data?.totals?.activeDays ?? 0}/${days}`} />
               </div>
             </CardContent>
           </Card>
@@ -244,7 +245,7 @@ export default function AnalyticsPage() {
                             {formatTaka(net, { sign: true })}
                           </span>
                         </div>
-                        <Bar label="Paid" value={paid} max={peopleMax} className="bg-chart-1" />
+                        <Bar label="Paid" value={paid} max={peopleMax} className="bg-primary" />
                         <Bar label="Share" value={share} max={peopleMax} className="bg-chart-2" />
                       </div>
                     </li>
@@ -252,13 +253,13 @@ export default function AnalyticsPage() {
                 </ul>
               </Section>
 
-              {days >= 7 && data && (
+              {days >= 7 && data?.byWeekday && (
                 <Section icon={CalendarDays} title="By day of the week" description="Busiest day highlighted">
                   <WeekdayChart data={data.byWeekday} />
                 </Section>
               )}
 
-              {data && data.top.length > 0 && (
+              {data?.top && data.top.length > 0 && (
                 <Section icon={Trophy} title="Biggest expenses">
                   <ol className="divide-y">
                     {data.top.map((e, i) => {

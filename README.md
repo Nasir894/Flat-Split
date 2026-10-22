@@ -7,7 +7,11 @@ Track shared flat spending, transfers between flatmates and rice turns. Next.js 
 - An expense has a payer and a set of consumers (everyone by default). The amount is split equally between consumers (leftover poisha go to the first few, so totals always match exactly).
 - **Balance = paid − consumed + transfers sent − transfers received.** Positive means the flat owes you, negative means you owe.
   - Example: A pays ৳200 for chicken that A, B, C and D eat → A +150, B/C/D −50 each.
-- A transfer (A hands B money) raises A's balance and lowers B's. The Home screen suggests the fewest transfers that settle everyone.
+- A transfer (A hands B money) raises A's balance and lowers B's, but only once **B confirms** they received it. Until then it shows as pending, and a declined transfer never counts. If B records the transfer themselves, it counts immediately. Editing a transfer sends it back for confirmation. The Home screen suggests the fewest transfers that settle everyone.
+
+## House chat
+
+A simple group chat for members: text and emoji only, with no photos, videos or files. Members can delete their own messages. Everyone gets a push notification for new messages.
 
 ## Rice rules
 

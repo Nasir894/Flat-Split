@@ -16,7 +16,8 @@ const compact = (poisha: number) => {
 
 /** Daily spending as a smooth area with a dashed "average per day" line. */
 export function TrendChart({ data, average }: { data: { day: string; total: number }[]; average: number }) {
-  const config = { total: { label: "Spent", color: "var(--chart-1)" } } satisfies ChartConfig;
+  // Neon yellow line in dark mode (black in light), like the Aurex charts.
+  const config = { total: { label: "Spent", color: "var(--primary)" } } satisfies ChartConfig;
   const long = data.length > 45;
   return (
     <ChartContainer config={config} className="aspect-auto h-56 w-full">
@@ -126,7 +127,7 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export function WeekdayChart({ data }: { data: { dow: number; total: number }[] }) {
   const rows = DAYS.map((label, i) => ({ label, total: data.find((d) => d.dow === i + 1)?.total ?? 0 }));
   const max = Math.max(...rows.map((r) => r.total));
-  const config = { total: { label: "Spent", color: "var(--chart-1)" } } satisfies ChartConfig;
+  const config = { total: { label: "Spent", color: "var(--primary)" } } satisfies ChartConfig;
   return (
     <ChartContainer config={config} className="aspect-auto h-40 w-full">
       <BarChart data={rows} margin={{ left: -14, right: 4, top: 8 }}>

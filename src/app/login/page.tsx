@@ -112,7 +112,8 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col items-center justify-center gap-8 px-4 py-10">
+    <main className="relative mx-auto flex min-h-dvh w-full max-w-sm flex-col items-center justify-center gap-8 px-4 py-10">
+      <div className="aurex-glow pointer-events-none fixed inset-x-0 top-0 -z-10 h-[60vh]" aria-hidden />
       <div className="text-center">
         <Logo animate loading={isLoading} className="mx-auto mb-3 size-16 drop-shadow-lg" />
         <h1 className="rise text-2xl font-bold tracking-tight">Flat Split</h1>

@@ -51,7 +51,7 @@ export const TRANSFER_COLS = `
   t.id, t.from_user_id as "fromUserId", t.to_user_id as "toUserId", t.amount::int as amount, t.note,
   t.sent_at as "sentAt", t.created_by as "createdBy", t.created_at as "createdAt",
   t.updated_by as "updatedBy", t.updated_at as "updatedAt", t.deleted_by as "deletedBy",
-  t.deleted_at as "deletedAt", t.version`;
+  t.deleted_at as "deletedAt", t.version, t.status, t.responded_by as "respondedBy", t.responded_at as "respondedAt"`;
 
 export const RICE_COLS = `
   r.id, r.user_id as "userId", r.given_at as "givenAt", r.note, r.created_by as "createdBy",
@@ -115,9 +115,11 @@ async function describe(q: Query, kind: RecordKind, row: Record<string, unknown>
   }
   if (kind === "transfer") {
     const n = await names(q, [row.fromUserId as string, row.toUserId as string]);
+    const status =
+      row.status === "pending" ? ` · waiting for ${n[row.toUserId as string]} to confirm` : row.status === "declined" ? " · declined" : "";
     return `${n[row.fromUserId as string]} → ${n[row.toUserId as string]} ${formatTaka(row.amount as number)}${
       row.note ? ` · ${row.note}` : ""
-    }`;
+    }${status}`;
   }
   const n = await names(q, [row.userId as string]);
   return `🍚 Rice given by ${n[row.userId as string]}`;
@@ -141,8 +143,12 @@ export async function createRecord(kind: RecordKind, actorId: string, body: unkn
       const d = transferInput.parse(body);
       await assertUsers(q, [d.fromUserId, d.toUserId]);
       [{ id }] = await q<{ id: string }>(
-        `insert into transfers (from_user_id, to_user_id, amount, note, sent_at, created_by)
-         values ($1, $2, $3, $4, date_trunc('milliseconds', coalesce($5::timestamptz, now())), $6) returning id`,
+        // The receiver must confirm money they got — unless they are the one recording it.
+        `insert into transfers (from_user_id, to_user_id, amount, note, sent_at, created_by, status, responded_by, responded_at)
+         values ($1, $2, $3, $4, date_trunc('milliseconds', coalesce($5::timestamptz, now())), $6,
+                 case when $6::uuid = $2::uuid then 'approved' else 'pending' end,
+                 case when $6::uuid = $2::uuid then $6::uuid end, case when $6::uuid = $2::uuid then now() end)
+         returning id`,
         [d.fromUserId, d.toUserId, d.amount, d.note, d.sentAt ?? null, actorId],
       );
     } else {
@@ -155,12 +161,18 @@ export async function createRecord(kind: RecordKind, actorId: string, body: unkn
       );
     }
     const row = await snapshot(q, kind, id);
+    let title: string | undefined;
+    if (kind === "transfer" && row.status === "pending") {
+      const n = await names(q, [row.fromUserId, row.toUserId]);
+      title = `💸 ${n[row.fromUserId]} paid ${n[row.toUserId]} ${formatTaka(row.amount)}: ${n[row.toUserId]}, please confirm`;
+    }
     await audit(q, {
       entity: kind,
       entityId: id,
       action: "create",
       actorId,
       actorName: await userName(q, actorId),
+      title,
       summary: await describe(q, kind, row),
       after: row,
     });
@@ -190,8 +202,12 @@ export async function updateRecord(kind: RecordKind, actorId: string, id: string
       const d = transferInput.parse(body);
       await assertUsers(q, [d.fromUserId, d.toUserId]);
       await q(
+        // Any change has to be confirmed again by the receiver (unless the receiver made it).
         `update transfers set from_user_id = $2, to_user_id = $3, amount = $4, note = $5,
-           sent_at = date_trunc('milliseconds', coalesce($6::timestamptz, sent_at)), updated_by = $7, updated_at = now(), version = version + 1
+           sent_at = date_trunc('milliseconds', coalesce($6::timestamptz, sent_at)), updated_by = $7, updated_at = now(),
+           version = version + 1,
+           status = case when $7::uuid = $3::uuid then 'approved' else 'pending' end,
+           responded_by = case when $7::uuid = $3::uuid then $7::uuid end, responded_at = case when $7::uuid = $3::uuid then now() end
          where id = $1`,
         [id, d.fromUserId, d.toUserId, d.amount, d.note, d.sentAt ?? null, actorId],
       );
@@ -294,4 +310,40 @@ export async function listRecords(kind: RecordKind, url: URL) {
     items,
     nextCursor: rows.length > limit && last ? `${new Date(last[key]).toISOString()}|${last.id}` : null,
   };
+}
+
+export const respondInput = z.object({ decision: z.enum(["approve", "decline"]), version: z.number().int().positive() });
+
+/** The receiver confirms (or rejects) money someone says they paid them. Only then does it count. */
+export async function respondTransfer(actorId: string, id: string, body: unknown) {
+  const { decision, version } = respondInput.parse(body);
+  return withTx(async (q) => {
+    const before = await snapshot(q, "transfer", id, true);
+    assertVersion(before, version);
+    if (before.deletedAt) throw new HttpError(400, "This transfer was deleted");
+    if (before.toUserId !== actorId) throw new HttpError(403, "Only the person who received the money can confirm it");
+    if (before.status !== "pending") throw new HttpError(400, "This transfer was already answered");
+    await q(
+      `update transfers set status = $2, responded_by = $3, responded_at = now(), version = version + 1 where id = $1`,
+      [id, decision === "approve" ? "approved" : "declined", actorId],
+    );
+    const after = await snapshot(q, "transfer", id);
+    const actorName = await userName(q, actorId);
+    const n = await names(q, [after.fromUserId]);
+    await audit(q, {
+      entity: "transfer",
+      entityId: id,
+      action: "update",
+      actorId,
+      actorName,
+      title:
+        decision === "approve"
+          ? `✅ ${actorName} confirmed ${n[after.fromUserId]}'s payment`
+          : `❌ ${actorName} declined ${n[after.fromUserId]}'s payment`,
+      summary: await describe(q, "transfer", after),
+      before,
+      after,
+    });
+    return after;
+  });
 }

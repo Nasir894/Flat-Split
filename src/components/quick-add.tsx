@@ -14,9 +14,9 @@ const QuickAddContext = createContext<(kind?: Kind) => void>(() => {});
 export const useQuickAdd = () => useContext(QuickAddContext);
 
 const OPTIONS = [
-  { kind: "expense", label: "Expense", hint: "Something bought for the flat", icon: Receipt, tone: "from-teal-400 to-teal-600" },
+  { kind: "expense", label: "Expense", hint: "Something bought for the flat", icon: Receipt, tone: "from-orange-400 to-orange-700" },
   { kind: "transfer", label: "Transfer", hint: "Money handed to a flatmate", icon: ArrowLeftRight, tone: "from-sky-400 to-indigo-500" },
-  { kind: "rice", label: "Rice given", hint: "Your turn for the rice", icon: Wheat, tone: "from-amber-400 to-orange-500" },
+  { kind: "rice", label: "Rice given", hint: "Your turn for the rice", icon: Wheat, tone: "from-yellow-300 to-lime-500" },
 ] as const;
 
 export function QuickAddProvider({ children }: { children: React.ReactNode }) {

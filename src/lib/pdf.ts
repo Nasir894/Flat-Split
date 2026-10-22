@@ -17,7 +17,16 @@ type Backup = {
     deletedBy: string | null;
   }[];
   expenseShares: { expenseId: string; userId: string; amount: number }[];
-  transfers: { id: string; fromUserId: string; toUserId: string; amount: number; note: string; sentAt: string; deletedAt: string | null }[];
+  transfers: {
+    id: string;
+    fromUserId: string;
+    toUserId: string;
+    amount: number;
+    note: string;
+    sentAt: string;
+    deletedAt: string | null;
+    status?: "pending" | "approved" | "declined";
+  }[];
   riceEntries: { id: string; userId: string; givenAt: string; createdAt: string; note: string; deletedAt: string | null }[];
   auditLog: { action: string; actorId: string | null; summary: string; createdAt: string }[];
 };
@@ -40,7 +49,8 @@ export async function downloadPdf(b: Backup) {
   doc.setFontSize(10).setTextColor(100).text(`Generated ${format(new Date(b.exportedAt), "d MMM yyyy, h:mm a")}`, 40, (y += 18));
 
   const live = b.expenses.filter((e) => !e.deletedAt);
-  const liveT = b.transfers.filter((t) => !t.deletedAt);
+  // Only transfers the receiver confirmed count toward balances.
+  const liveT = b.transfers.filter((t) => !t.deletedAt && (t.status ?? "approved") === "approved");
   const sharesOf = (eid: string) => b.expenseShares.filter((s) => s.expenseId === eid);
   const balance = (uid: string) =>
     live.reduce((s, e) => s + (e.payerId === uid ? e.amount : 0) - (sharesOf(e.id).find((x) => x.userId === uid)?.amount ?? 0), 0) +
@@ -111,8 +121,14 @@ export async function downloadPdf(b: Backup) {
     section("Transfers");
     table(
       ["Date", "From", "To", "Amount", "Note"],
-      tr.map((t) => [d(t.sentAt), name(t.fromUserId), name(t.toUserId), tk(t.amount), (t.note || "-") + (t.deletedAt ? " [deleted]" : "")]),
-      tr.map((t) => Boolean(t.deletedAt)),
+      tr.map((t) => [
+        d(t.sentAt),
+        name(t.fromUserId),
+        name(t.toUserId),
+        tk(t.amount),
+        (t.note || "-") + (t.deletedAt ? " [deleted]" : t.status && t.status !== "approved" ? ` [${t.status}]` : ""),
+      ]),
+      tr.map((t) => Boolean(t.deletedAt) || (t.status ?? "approved") !== "approved"),
     );
   }
 
