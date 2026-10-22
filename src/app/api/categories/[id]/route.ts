@@ -1,6 +1,6 @@
 import { withTx } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
-import { requireUser } from "@/lib/server/auth";
+import { requireMember } from "@/lib/server/auth";
 import { audit, userName } from "@/lib/server/audit";
 
 type Ctx = RouteContext<"/api/categories/[id]">;
@@ -31,5 +31,5 @@ async function toggle(userId: string, id: string, deleted: boolean) {
   });
 }
 
-export const DELETE = route<Ctx>(async (_req, ctx) => toggle(await requireUser(), (await ctx.params).id, true));
-export const POST = route<Ctx>(async (_req, ctx) => toggle(await requireUser(), (await ctx.params).id, false));
+export const DELETE = route<Ctx>(async (_req, ctx) => toggle(await requireMember(), (await ctx.params).id, true));
+export const POST = route<Ctx>(async (_req, ctx) => toggle(await requireMember(), (await ctx.params).id, false));

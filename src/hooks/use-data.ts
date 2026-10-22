@@ -39,12 +39,18 @@ export function useLookups() {
   const { data } = useSummary();
   return useMemo(() => {
     const users = data?.users ?? [];
+    const guests = data?.guests ?? [];
     const categories = data?.categories ?? [];
-    const userById = new Map<string, User>(users.map((u) => [u.id, u]));
+    // Names/avatars resolve for home sharers and tour guests alike.
+    const userById = new Map<string, User>([...users, ...guests].map((u) => [u.id, u]));
     const catById = new Map<string, Category>(categories.map((c) => [c.id, c]));
     return {
       meId: data?.meId ?? "",
+      role: data?.role ?? "member",
+      isGuest: data?.role === "guest",
       users,
+      guests,
+      tours: data?.tours ?? [],
       categories,
       activeCategories: categories.filter((c) => !c.deletedAt),
       userById,

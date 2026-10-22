@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { query } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
-import { requireUser } from "@/lib/server/auth";
+import { requireMember } from "@/lib/server/auth";
 import { notifyOthers } from "@/lib/server/push";
 import { MESSAGE_COLS } from "@/lib/server/chat";
 
@@ -15,7 +15,7 @@ import { MESSAGE_COLS } from "@/lib/server/chat";
  *    since the last poll, and who is typing right now.
  */
 export const GET = route(async (req) => {
-  const me = await requireUser();
+  const me = await requireMember();
   const url = new URL(req.url);
   const afterId = Number(url.searchParams.get("after")) || null;
   const beforeId = Number(url.searchParams.get("before")) || null;
@@ -52,7 +52,7 @@ const body = z.object({
 });
 
 export const POST = route(async (req) => {
-  const userId = await requireUser();
+  const userId = await requireMember();
   const d = body.parse(await req.json());
   const [{ n }] = await query<{ n: number }>(
     "select count(*)::int as n from chat_messages where user_id = $1 and created_at > now() - interval '1 minute'",

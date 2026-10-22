@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { query } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
-import { requireUser } from "@/lib/server/auth";
+import { requireMember } from "@/lib/server/auth";
 import { notifyUsers } from "@/lib/server/push";
 import { REACTIONS } from "@/lib/chat";
 
@@ -12,7 +12,7 @@ const body = z.object({ emoji: z.enum(REACTIONS, { error: "Pick one of the react
 
 // One reaction per member per message: same emoji again removes it, a different one replaces it.
 export const POST = route<Ctx>(async (req, ctx) => {
-  const userId = await requireUser();
+  const userId = await requireMember();
   const id = Number((await ctx.params).id);
   const { emoji } = body.parse(await req.json());
 

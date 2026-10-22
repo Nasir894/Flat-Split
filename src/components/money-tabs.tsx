@@ -2,18 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeftRight, Receipt } from "lucide-react";
+import { ArrowLeftRight, Luggage, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Switch between Expenses and Transfers (they share the "Expenses" tab in the bottom nav). */
+/** Expenses / Transfers / Tours share the "Money" tab in the bottom nav. */
 export function MoneyTabs() {
   const pathname = usePathname();
   const tabs = [
     { href: "/expenses", label: "Expenses", icon: Receipt },
     { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
+    { href: "/tours", label: "Tours", icon: Luggage },
   ];
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
+    <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
       {tabs.map(({ href, label, icon: Icon }) => {
         const active = pathname.startsWith(href);
         return (

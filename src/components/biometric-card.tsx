@@ -6,7 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Fingerprint, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { biometricAvailable, biometricEnabledHere, enrollBiometric, forgetBiometricHere } from "@/lib/biometric";
+import { biometricAvailable, biometricEnabledHere, enrollBiometric, forgetBiometricHere, passkeysSupported } from "@/lib/biometric";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -22,7 +22,8 @@ export function BiometricCard() {
   const { data: keys = [] } = useQuery({ queryKey: ["passkeys"], queryFn: () => api<Passkey[]>("/api/passkeys") });
 
   useEffect(() => {
-    biometricAvailable().then(setAvailable);
+    // Built-in sensor, or any passkey method (Windows Hello, phone via QR, security key).
+    biometricAvailable().then((b) => setAvailable(b || passkeysSupported()));
   }, []);
 
   const enable = async () => {
@@ -71,8 +72,8 @@ export function BiometricCard() {
       <CardContent className="space-y-3">
         {available === false ? (
           <p className="text-sm text-muted-foreground">
-            This device or browser doesn&apos;t support it. On a phone, open Flat Split in Chrome (Android) or Safari
-            (iPhone), or from the installed app.
+            This browser can&apos;t do it here. Use Chrome, Edge or Safari on the app&apos;s https address (not a preview
+            link). On Windows, set up Windows Hello first: Settings → Accounts → Sign-in options.
           </p>
         ) : onHere ? (
           <p className="rounded-lg bg-positive/10 p-2 text-sm text-positive">On for this device ✓</p>

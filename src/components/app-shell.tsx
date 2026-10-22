@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, MessageCircle } from "lucide-react";
-import { AddIcon, HomeIcon, RiceIcon, StatsIcon, WalletIcon } from "./nav-icons";
+import { AddIcon, HomeIcon, StatsIcon, TurnsIcon, WalletIcon } from "./nav-icons";
 import { useSummary } from "@/hooks/use-data";
 import { ApiError } from "@/lib/api";
 import { getSeen, SEEN_EVENT } from "@/lib/seen";
@@ -18,9 +18,9 @@ import { UserAvatar } from "./member-avatar";
 // Two tabs either side of the centre "+" button. Transfers live under Expenses (tab on that page).
 const NAV = [
   { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" },
-  { href: "/expenses", label: "Money", icon: WalletIcon, match: (p: string) => p.startsWith("/expenses") || p.startsWith("/transfers") },
+  { href: "/expenses", label: "Money", icon: WalletIcon, match: (p: string) => p.startsWith("/expenses") || p.startsWith("/transfers") || p.startsWith("/tours") },
   null,
-  { href: "/rice", label: "Turns", icon: RiceIcon, match: (p: string) => p.startsWith("/rice") },
+  { href: "/rice", label: "Turns", icon: TurnsIcon, match: (p: string) => p.startsWith("/rice") },
   { href: "/analytics", label: "Stats", icon: StatsIcon, match: (p: string) => p.startsWith("/analytics") },
 ];
 
@@ -33,6 +33,7 @@ const TITLES: Record<string, string> = {
   "/activity": "Activity",
   "/settings": "Settings",
   "/chat": "House chat",
+  "/tours": "Tours",
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -64,8 +65,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [error, router]);
 
   const fatal = !data && error && !(error instanceof ApiError && error.status === 401) ? error : null;
-  const me = data?.users.find((u) => u.id === data.meId);
+  const me = [...(data?.users ?? []), ...(data?.guests ?? [])].find((u) => u.id === data?.meId);
   const isChat = pathname === "/chat";
+  const isGuest = data?.role === "guest";
+  // Guests only have the tour section (their home page lists their tours) and their own settings.
+  const guestAllowed = pathname === "/" || pathname.startsWith("/tours") || pathname === "/settings";
+  useEffect(() => {
+    if (isGuest && !guestAllowed) router.replace("/");
+  }, [isGuest, guestAllowed, router]);
 
   return (
     <AppLock me={me}>
@@ -73,8 +80,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Full-width copper glow at the top of the page; scrolls away with the content */}
         <div className="aurex-glow pointer-events-none absolute inset-x-0 top-0 h-[32rem]" aria-hidden />
         <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
-          <Header title={TITLES[pathname] ?? "Flat Split"} />
-          <main className={cn("flex-1 px-4 pt-3", isChat ? "pb-4" : "pb-28")}>
+          <Header title={isGuest && pathname === "/" ? "My tours" : (TITLES[pathname] ?? (pathname.startsWith("/tours") ? "Tours" : "Flat Split"))} guest={isGuest} />
+          <main className={cn("flex-1 px-4 pt-3", isChat || isGuest ? "pb-8" : "pb-28")}>
             {fatal ? (
               <div className="rise mx-auto mt-10 max-w-sm space-y-3 rounded-2xl border border-negative/30 bg-negative/5 p-4 text-center">
                 <p className="font-medium">Couldn&apos;t load your data</p>
@@ -87,14 +94,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               children
             )}
           </main>
-          {!isChat && <BottomNav pathname={pathname} />}
+          {!isChat && !isGuest && <BottomNav pathname={pathname} />}
         </div>
       </QuickAddProvider>
     </AppLock>
   );
 }
 
-function Header({ title }: { title: string }) {
+function Header({ title, guest }: { title: string; guest?: boolean }) {
   const { data } = useSummary();
   // Transparent over the glow at the top; frosted once the page scrolls.
   const [scrolled, setScrolled] = useState(false);
@@ -103,7 +110,7 @@ function Header({ title }: { title: string }) {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  const me = data?.users.find((u) => u.id === data.meId);
+  const me = [...(data?.users ?? []), ...(data?.guests ?? [])].find((u) => u.id === data?.meId);
   const unreadChat = Boolean(data?.lastChat && data.lastChat.userId !== data.meId && data.lastChat.id > getSeen("chat"));
   const unreadActivity = Boolean(
     data?.lastActivity && data.lastActivity.userId !== data.meId && data.lastActivity.id > getSeen("activity"),
@@ -120,12 +127,16 @@ function Header({ title }: { title: string }) {
         <Logo className="size-8" />
       </Link>
       <h1 className="flex-1 truncate py-3 text-lg font-semibold tracking-tight">{title}</h1>
-      <HeaderButton href="/chat" label="House chat" dot={unreadChat}>
-        <MessageCircle />
-      </HeaderButton>
-      <HeaderButton href="/activity" label="Activity" dot={unreadActivity}>
-        <Bell />
-      </HeaderButton>
+      {!guest && (
+        <>
+          <HeaderButton href="/chat" label="House chat" dot={unreadChat}>
+            <MessageCircle />
+          </HeaderButton>
+          <HeaderButton href="/activity" label="Activity" dot={unreadActivity}>
+            <Bell />
+          </HeaderButton>
+        </>
+      )}
       <Link href="/settings" aria-label="Settings and profile" className="ml-1 rounded-full ring-2 ring-border transition active:scale-95">
         <UserAvatar user={me} className="size-9 text-xs" />
       </Link>

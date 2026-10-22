@@ -37,7 +37,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const { theme, setTheme } = useTheme();
-  const { users, meId, categories } = useLookups();
+  const { users, guests, meId, categories, userById, isGuest } = useLookups();
   const [busy, setBusy] = useState<string | null>(null);
   const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null);
   // This page renders only on the client (inside AppLock), so browser checks can run during render.
@@ -94,7 +94,7 @@ export default function SettingsPage() {
       router.replace("/login");
     });
 
-  const me = users.find((u) => u.id === meId);
+  const me = userById.get(meId);
 
   return (
     <div className="space-y-4">
@@ -156,6 +156,8 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      {/* Home-only settings: guests only use their tours */}
+      {!isGuest && (
       <Card className="rise">
         <CardHeader>
           <CardTitle className="text-base">Backup &amp; restore</CardTitle>
@@ -171,18 +173,19 @@ export default function SettingsPage() {
           <RestoreButton />
         </CardContent>
       </Card>
+      )}
 
-      <CategoriesCard categories={categories} />
+      {!isGuest && <CategoriesCard categories={categories} />}
 
       <BiometricCard />
 
-      <HouseCodeCard />
+      {!isGuest && <HouseCodeCard />}
 
       <ChangePinCard />
 
       <RecoveryCodeCard />
 
-      <MembersCard users={users} meId={meId} />
+      {!isGuest && <MembersCard users={[...users, ...guests]} meId={meId} />}
 
       <Button variant="outline" className="w-full text-negative" onClick={logout} disabled={busy === "logout"}>
         <LogOut /> Sign out of this device
@@ -512,6 +515,7 @@ function MembersCard({ users, meId }: { users: ReturnType<typeof useLookups>["us
                   ? `Added by ${users.find((x) => x.id === u.addedBy)?.name ?? "a former member"}`
                   : "Created the house"}{" "}
                 · {format(new Date(u.joinedAt), "d MMM yyyy")}
+                {u.role === "guest" && " · Tour guest"}
                 {u.needsPin && " · needs new PIN"}
               </span>
             </span>

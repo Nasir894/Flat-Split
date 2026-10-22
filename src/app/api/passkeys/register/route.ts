@@ -22,8 +22,9 @@ export const GET = route(async (req) => {
     userID: new TextEncoder().encode(userId),
     attestationType: "none",
     excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports })),
+    // No attachment restriction: phones use their fingerprint/face, laptops use Windows Hello /
+    // Touch ID, and a phone can also be used for a laptop via QR code.
     authenticatorSelection: {
-      authenticatorAttachment: "platform", // this phone's own fingerprint / face unlock
       residentKey: "required", // lets the sign-in screen work without typing a name
       userVerification: "required", // must actually check the fingerprint/face (or device PIN)
     },

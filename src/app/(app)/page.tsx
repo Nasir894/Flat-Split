@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { format } from "date-fns";
 import Link from "next/link";
 import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Clock, Receipt } from "lucide-react";
 import { useLookups, useRecords, useSummary } from "@/hooks/use-data";
@@ -19,10 +20,17 @@ import { TransferForm, type TransferDraft } from "@/components/forms/transfer-fo
 import { useQuickAdd } from "@/components/quick-add";
 import { JoinRequests } from "@/components/join-requests";
 import { Amount } from "@/components/amount";
+import { GuestHome } from "@/components/guest-home";
 
 type Feed = "all" | "expenses" | "transfers";
 
-export default function HomePage() {
+export default function Page() {
+  const { isGuest } = useLookups();
+  // Guests only see their tours; home sharers get the home dashboard.
+  return isGuest ? <GuestHome /> : <HomePage />;
+}
+
+function HomePage() {
   const { data } = useSummary();
   const { userById, meId, name } = useLookups();
   const expenses = useRecords<Expense>("expenses", { limit: "6" });
@@ -39,9 +47,12 @@ export default function HomePage() {
   const balances = [...data.balances].sort((a, b) => b.balance - a.balance);
   const mine = data.balances.find((b) => b.id === meId)?.balance ?? 0;
   const maxAbs = Math.max(1, ...balances.map((b) => Math.abs(b.balance)));
-  const plan = settlePlan(data.balances);
+  // Settle-up between home sharers assumes pending guest settlements from closed tours will be paid.
+  const plan = settlePlan(data.balances.map((b) => ({ id: b.id, balance: b.planBalance ?? b.balance })));
   // Trackers where it's my turn (I owe at least once).
   const myTurns = (data.trackers ?? []).filter((t) => (t.status.members[meId]?.owed ?? 0) > 0);
+  // The ongoing tour (or the most recent plan) takes the tile where Turns usually sits.
+  const featured = (data.tours ?? []).find((t) => t.status === "active") ?? (data.tours ?? []).find((t) => t.status === "planned");
   const awaiting = data.awaitingMe ?? [];
 
   // Expenses and transfers in one timeline, newest first.
@@ -66,18 +77,34 @@ export default function HomePage() {
         </div>
         <Amount poisha={Math.abs(mine)} className="mt-1 block text-[2.9rem] leading-tight font-bold" />
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link href="/rice" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
-            <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">
-              {myTurns[0]?.emoji ?? "🔁"}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">Turns</span>
-              <span className="block truncate text-[11px] text-foreground/60">
-                {myTurns.length ? `Your turn: ${myTurns.map((t) => t.name).join(", ")}` : "All caught up"}
+          {featured ? (
+            <Link href={`/tours/${featured.id}`} className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
+              <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">{featured.emoji}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{featured.name}</span>
+                <span className="block truncate text-[11px] text-foreground/60">
+                  {featured.status === "active"
+                    ? `Ongoing · ${formatTaka(featured.spent)} spent`
+                    : featured.startDate
+                      ? `Planned · ${format(new Date(featured.startDate + "T00:00:00"), "d MMM")}`
+                      : "Planned tour"}
+                </span>
               </span>
-            </span>
-            <ChevronRight className="size-4 text-foreground/50" />
-          </Link>
+              <ChevronRight className="size-4 text-foreground/50" />
+            </Link>
+          ) : (            <Link href="/rice" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
+              <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">
+                {myTurns[0]?.emoji ?? "🔁"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Turns</span>
+                <span className="block truncate text-[11px] text-foreground/60">
+                  {myTurns.length ? `Your turn: ${myTurns.map((t) => t.name).join(", ")}` : "All caught up"}
+                </span>
+              </span>
+              <ChevronRight className="size-4 text-foreground/50" />
+            </Link>
+          )}
           <Link href="/transfers" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
             <span className="flex size-9 items-center justify-center rounded-full bg-brand text-brand-foreground">
               <Clock className="size-4" />

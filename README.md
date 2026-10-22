@@ -9,7 +9,21 @@ Track shared flat spending, transfers between flatmates and rice turns. Next.js 
   - Example: A pays ৳200 for chicken that A, B, C and D eat → A +150, B/C/D −50 each.
 - A transfer (A hands B money) raises A's balance and lowers B's, but only once **B confirms** they received it. Until then it shows as pending, and a declined transfer never counts. If B records the transfer themselves, it counts immediately. Editing a transfer sends it back for confirmation. The Home screen suggests the fewest transfers that settle everyone.
 
+## Roles
+
+- **Home sharers** live in the flat. They're the admins and see everything.
+- **Guests** are friends who only join tours. When approving a join request, a home sharer picks *Home sharer* or *Tour guest* (and which tours).
+
+## Tours
+
+- **Plan:** name, dates, who's going (home sharers + guests) and a budget planner. Planning doesn't start the tour.
+- **Start:** a home sharer starts it manually. Expenses can then be added from the normal expense entry by picking the tour; that choice stays selected until it's changed or the tour closes.
+- **Active:** tour expenses are kept separate from the home fund. The planner compares the budget with actual spending per category.
+- **Close (home sharers only):** each guest settles with exactly one home sharer. A guest who owes pays the home sharer with the most to receive (home balance plus tour), and a guest who's owed is paid by the one who owes the most, recalculated after each guest. Everything else joins the home fund. The receiver of each settlement confirms it, and guests can only approve.
+- **Archive:** everyone can download tours as Excel (also opens in Google Sheets), CSV or a PDF summary.
+
 ## House chat
+
 
 A simple group chat for members: text and emoji only, with no photos, videos or files. Tap a message to react (👍 ❤️ 😂 😮 😢 🙏 🔥 🎉; one reaction per person; double-tap for ❤️). You see when someone is typing. Members can delete their own messages. Everyone gets a push notification for new messages, and authors are notified of reactions.
 

@@ -7,7 +7,8 @@ import type { Expense } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { RecordActions, RecordMeta, RecordRow } from "./records";
 
-export function ExpenseItem({ e, onEdit }: { e: Expense; onEdit: () => void }) {
+/** `readOnly`: no edit/delete menu (e.g. expenses on a closed tour). */
+export function ExpenseItem({ e, onEdit, readOnly }: { e: Expense; onEdit: () => void; readOnly?: boolean }) {
   const { name, catById, meId, users } = useLookups();
   const cat = e.categoryId ? catById.get(e.categoryId) : undefined;
   const myShare = e.shares.find((s) => s.userId === meId)?.amount ?? 0;
@@ -34,7 +35,7 @@ export function ExpenseItem({ e, onEdit }: { e: Expense; onEdit: () => void }) {
           </p>
         )}
       </div>
-      <RecordActions kind="expenses" rec={e} onEdit={onEdit} />
+      {!readOnly && <RecordActions kind="expenses" rec={e} onEdit={onEdit} />}
     </RecordRow>
   );
 }

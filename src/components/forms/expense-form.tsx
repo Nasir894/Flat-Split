@@ -15,31 +15,61 @@ import { Label } from "@/components/ui/label";
 import { UserAvatar } from "@/components/member-avatar";
 import { AmountInput, cleanAmount, FormDrawer, fromDateInput, toDateInput } from "./shared";
 
+// The last place someone added an expense to (home or an active tour) stays selected until they
+// change it or the tour closes.
+const TARGET_KEY = "fs_expense_target";
+
 export function ExpenseForm({
   open,
   onOpenChange,
   expense,
+  tourId,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   expense?: Expense;
+  /** Open straight on this tour (e.g. from the tour page). */
+  tourId?: string;
 }) {
   return (
     <FormDrawer open={open} onOpenChange={onOpenChange} title={expense ? "Edit expense" : "Add expense"}>
-      {open && <ExpenseFields expense={expense} onDone={() => onOpenChange(false)} />}
+      {open && <ExpenseFields expense={expense} tourId={tourId} onDone={() => onOpenChange(false)} />}
     </FormDrawer>
   );
 }
 
-function ExpenseFields({ expense, onDone }: { expense?: Expense; onDone: () => void }) {
-  const { users, meId, activeCategories } = useLookups();
+function ExpenseFields({ expense, tourId, onDone }: { expense?: Expense; tourId?: string; onDone: () => void }) {
+  const { users, meId, activeCategories, tours, isGuest, userById } = useLookups();
   const mutation = useRecordMutation();
+  // Where this expense goes: "home" or an active tour I'm allowed to use.
+  const activeTours = tours.filter((t) => t.status === "active" && (!isGuest || t.participantIds.includes(meId)));
+  const [target, setTarget] = useState<string>(() => {
+    if (expense) return expense.tourId ?? "home";
+    if (tourId) return tourId;
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(TARGET_KEY);
+    } catch {}
+    if (saved && activeTours.some((t) => t.id === saved)) return saved;
+    return isGuest ? (activeTours[0]?.id ?? "home") : "home";
+  });
+  const tour = activeTours.find((t) => t.id === target) ?? tours.find((t) => t.id === target);
+  const people =
+    target === "home" ? users : ((tour?.participantIds ?? []).map((id) => userById.get(id)).filter(Boolean) as typeof users);
   const [amount, setAmount] = useState(expense ? String(expense.amount / 100) : "");
   const [description, setDescription] = useState(expense?.description ?? "");
   const [categoryId, setCategoryId] = useState<string | null>(expense?.categoryId ?? null);
   const [payerId, setPayerId] = useState(expense?.payerId ?? meId);
-  const [consumers, setConsumers] = useState<string[]>(expense?.shares.map((s) => s.userId) ?? users.map((u) => u.id));
+  const [consumers, setConsumers] = useState<string[]>(expense?.shares.map((s) => s.userId) ?? people.map((u) => u.id));
   const [date, setDate] = useState(toDateInput(expense?.spentAt));
+
+  const chooseTarget = (t: string) => {
+    setTarget(t);
+    const next = t === "home" ? users : ((tours.find((x) => x.id === t)?.participantIds ?? []).map((id) => userById.get(id)).filter(Boolean) as typeof users);
+    // Default split: everyone in the new place; keep me as payer if I'm there.
+    setConsumers(next.map((u) => u.id));
+    setPayerId(next.some((u) => u.id === meId) ? meId : (next[0]?.id ?? meId));
+  };
 
   const total = toPoisha(amount || 0);
   const shares = consumers.length && total > 0 ? splitEqual(total, consumers) : [];
@@ -58,15 +88,50 @@ function ExpenseFields({ expense, onDone }: { expense?: Expense; onDone: () => v
       spentAt: fromDateInput(date, expense?.spentAt),
       consumerIds: consumers,
       version: expense?.version,
+      tourId: target === "home" ? null : target,
     };
     mutation.mutate(
       expense ? { op: "update", kind: "expenses", id: expense.id, body } : { op: "create", kind: "expenses", body },
-      { onSuccess: onDone },
+      {
+        onSuccess: () => {
+          if (!expense) {
+            try {
+              localStorage.setItem(TARGET_KEY, target);
+            } catch {}
+          }
+          onDone();
+        },
+      },
     );
   };
 
   return (
     <form onSubmit={submit} className="space-y-5">
+      {/* Home or an active tour (locked when editing: an expense stays where it was added) */}
+      {expense ? (
+        expense.tourId && (
+          <p className="rounded-xl border bg-card px-3 py-2 text-sm">
+            {tour?.emoji} On tour: <b>{tour?.name}</b>
+          </p>
+        )
+      ) : (
+        (activeTours.length > 0 || isGuest) && (
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
+            {!isGuest && (
+              <TargetChip active={target === "home"} onClick={() => chooseTarget("home")}>
+                🏠 Home
+              </TargetChip>
+            )}
+            {activeTours.map((t) => (
+              <TargetChip key={t.id} active={target === t.id} onClick={() => chooseTarget(t.id)}>
+                {t.emoji} {t.name}
+              </TargetChip>
+            ))}
+            {isGuest && !activeTours.length && <p className="text-sm text-muted-foreground">None of your tours is active right now.</p>}
+          </div>
+        )
+      )}
+
       <AmountInput value={amount} onChange={(e) => setAmount(cleanAmount(e.target.value))} autoFocus={!expense} />
 
       <div className="space-y-2">
@@ -94,7 +159,7 @@ function ExpenseFields({ expense, onDone }: { expense?: Expense; onDone: () => v
             onChange={(e) => setPayerId(e.target.value)}
             className="h-9 w-full rounded-lg border bg-transparent px-2 text-sm dark:bg-input/30"
           >
-            {users.map((u) => (
+            {people.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.id === meId ? `${u.name} (me)` : u.name}
               </option>
@@ -113,13 +178,13 @@ function ExpenseFields({ expense, onDone }: { expense?: Expense; onDone: () => v
           <button
             type="button"
             className="text-xs text-primary"
-            onClick={() => setConsumers(consumers.length === users.length ? [] : users.map((u) => u.id))}
+            onClick={() => setConsumers(consumers.length === people.length ? [] : people.map((u) => u.id))}
           >
-            {consumers.length === users.length ? "Clear" : "Everyone"}
+            {consumers.length === people.length ? "Clear" : "Everyone"}
           </button>
         </div>
         <ul className="divide-y rounded-xl border">
-          {users.map((u) => {
+          {people.map((u) => {
             const on = consumers.includes(u.id);
             const share = shares.find((s) => s.userId === u.id)?.amount ?? 0;
             return (
@@ -147,7 +212,7 @@ function ExpenseFields({ expense, onDone }: { expense?: Expense; onDone: () => v
         </ul>
         {total > 0 && consumers.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            {users.find((u) => u.id === payerId)?.name} gets back{" "}
+            {people.find((u) => u.id === payerId)?.name} gets back{" "}
             <span className="font-medium text-positive">
               {formatTaka(total - (shares.find((s) => s.userId === payerId)?.amount ?? 0))}
             </span>
@@ -229,5 +294,20 @@ function CategoryPicker({
         </div>
       )}
     </div>
+  );
+}
+
+function TargetChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium whitespace-nowrap transition active:scale-95",
+        active ? "border-primary bg-primary text-primary-foreground" : "bg-card",
+      )}
+    >
+      {children}
+    </button>
   );
 }

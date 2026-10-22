@@ -19,9 +19,14 @@ function setEnabledHere(on: boolean) {
   } catch {}
 }
 
-/** True when this phone/computer has a built-in fingerprint, face or screen-lock check. */
+/** True when this browser supports passkeys at all (fingerprint/face, Windows Hello, phone via QR…). */
+export function passkeysSupported(): boolean {
+  return typeof window !== "undefined" && !!window.PublicKeyCredential && window.isSecureContext;
+}
+
+/** True when this phone/computer has its own fingerprint, face or Windows Hello / Touch ID check. */
 export async function biometricAvailable(): Promise<boolean> {
-  if (typeof window === "undefined" || !window.PublicKeyCredential) return false;
+  if (!passkeysSupported()) return false;
   try {
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
   } catch {
@@ -29,10 +34,20 @@ export async function biometricAvailable(): Promise<boolean> {
   }
 }
 
+const isWindows = () => typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
+
 function friendly(err: unknown): Error {
   const name = (err as { name?: string })?.name;
-  if (name === "NotAllowedError" || name === "AbortError") return new Error("Cancelled. You can use your PIN instead.");
+  if (name === "NotAllowedError" || name === "AbortError") {
+    return new Error(
+      isWindows()
+        ? "Cancelled or timed out. On Windows, set up Windows Hello first (Settings → Accounts → Sign-in options), or use your PIN."
+        : "Cancelled. You can use your PIN instead.",
+    );
+  }
   if (name === "InvalidStateError") return new Error("Fingerprint/face is already set up on this device.");
+  if (name === "SecurityError") return new Error("This only works on the app's real https address, not a preview link.");
+  if (name === "NotSupportedError") return new Error("This browser can't use fingerprint/face sign-in. Try Chrome, Edge or Safari.");
   return err instanceof Error ? err : new Error("Fingerprint/face didn't work. Use your PIN.");
 }
 

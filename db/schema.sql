@@ -239,3 +239,49 @@ on conflict (id) do nothing;
 alter table rice_entries add column if not exists tracker_id uuid not null
   default '00000000-0000-4000-8000-000000000001' references trackers(id);
 create index if not exists rice_entries_tracker on rice_entries (tracker_id, given_at);
+
+-- Roles: home sharers ('member', the admins who live in the flat) and tour-only 'guest's.
+alter table users add column if not exists role text not null default 'member';
+do $$ begin
+  alter table users add constraint users_role_check check (role in ('member', 'guest'));
+exception when duplicate_object then null; end $$;
+
+-- Tours: planned → active (started manually) → closed (archive). Separate from the home fund
+-- until closed; on close guests settle with one home sharer each and the rest joins the home fund.
+create table if not exists tours (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  emoji text not null default '🧳',
+  status text not null default 'planned' check (status in ('planned', 'active', 'closed')),
+  start_date date,
+  end_date date,
+  notes text not null default '',
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  started_by uuid references users(id),
+  closed_at timestamptz,
+  closed_by uuid references users(id),
+  deleted_at timestamptz,
+  deleted_by uuid references users(id)
+);
+create table if not exists tour_participants (
+  tour_id uuid not null references tours(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
+  primary key (tour_id, user_id)
+);
+-- Planner: budget lines to compare with actual spending.
+create table if not exists tour_plan_items (
+  id uuid primary key default gen_random_uuid(),
+  tour_id uuid not null references tours(id) on delete cascade,
+  label text not null,
+  category_id uuid references categories(id),
+  amount bigint not null check (amount >= 0),
+  created_by uuid references users(id),
+  created_at timestamptz not null default now()
+);
+alter table expenses add column if not exists tour_id uuid references tours(id);
+create index if not exists expenses_tour on expenses (tour_id);
+alter table transfers add column if not exists tour_id uuid references tours(id);
+alter table transfers add column if not exists settlement boolean not null default false;
+create index if not exists transfers_tour on transfers (tour_id);

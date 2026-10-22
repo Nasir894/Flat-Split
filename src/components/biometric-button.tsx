@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Fingerprint, Loader2 } from "lucide-react";
-import { biometricAvailable, verifyBiometric } from "@/lib/biometric";
+import { biometricAvailable, passkeysSupported, verifyBiometric } from "@/lib/biometric";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -36,11 +36,12 @@ export function BiometricButton({
 
   useEffect(() => {
     let cancelled = false;
-    biometricAvailable().then((ok) => {
+    biometricAvailable().then((builtIn) => {
       if (cancelled) return;
-      setAvailable(ok);
+      // Sign-in also works with a phone (QR code) or security key, so show it wherever passkeys work.
+      setAvailable(builtIn || (purpose === "login" && passkeysSupported()));
       // A blocked auto-prompt (no tap yet) fails silently; the button is still there.
-      if (ok && autoStart) run(true);
+      if (builtIn && autoStart) run(true);
     });
     return () => {
       cancelled = true;
@@ -52,7 +53,7 @@ export function BiometricButton({
   return (
     <Button type="button" variant="outline" size="lg" className="w-full" disabled={busy} onClick={() => run()}>
       {busy ? <Loader2 className="animate-spin" /> : <Fingerprint className="size-5 text-primary" />}
-      Use fingerprint / face
+      Use fingerprint / face / passkey
     </Button>
   );
 }

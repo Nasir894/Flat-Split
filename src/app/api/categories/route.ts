@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { withTx } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
-import { requireUser } from "@/lib/server/auth";
+import { requireMember } from "@/lib/server/auth";
 import { audit, userName } from "@/lib/server/audit";
 
 const body = z.object({
@@ -10,7 +10,7 @@ const body = z.object({
 });
 
 export const POST = route(async (req) => {
-  const userId = await requireUser();
+  const userId = await requireMember();
   const d = body.parse(await req.json());
   return withTx(async (q) => {
     const [dupe] = await q("select 1 from categories where lower(name) = lower($1) and deleted_at is null", [d.name]);

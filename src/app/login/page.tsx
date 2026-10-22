@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { markUnlocked } from "@/components/app-lock";
+import { CACHE_KEY } from "@/components/providers";
 import { BiometricButton } from "@/components/biometric-button";
 import { biometricEnabledHere } from "@/lib/biometric";
 
@@ -81,6 +82,11 @@ export default function LoginPage() {
 
   const enter = async () => {
     markUnlocked();
+    // Never show the previous person's saved data to whoever just signed in on this device.
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch {}
+    qc.clear();
     await qc.resetQueries();
     router.replace("/");
   };
@@ -182,7 +188,8 @@ export default function LoginPage() {
         </div>
       ) : (
         <div className="w-full space-y-4">
-          {bioHere && <BiometricButton purpose="login" onSuccess={bioLogin} onError={setError} />}
+          {/* Shown wherever passkeys work: built-in sensor, Windows Hello, or a phone via QR code. */}
+          <BiometricButton purpose="login" autoStart={bioHere} onSuccess={bioLogin} onError={setError} />
           {error && !name && <p className="text-center text-sm text-negative">{error}</p>}
           <NameStep onNext={(n) => (setError(null), setName(n))} onJoin={() => setMode("join")} />
         </div>

@@ -1,9 +1,9 @@
 import "server-only";
 import { after } from "next/server";
 import type { Query } from "./db";
-import { notifyOthers } from "./push";
+import { notifyOthers, notifyUsers } from "./push";
 
-export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house" | "tracker";
+export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house" | "tracker" | "tour";
 export type Action = "create" | "update" | "delete" | "restore" | "import";
 
 const URLS: Record<Entity, string> = {
@@ -15,6 +15,7 @@ const URLS: Record<Entity, string> = {
   backup: "/activity",
   house: "/settings",
   tracker: "/rice",
+  tour: "/tours",
 };
 
 /**
@@ -34,6 +35,8 @@ export async function audit(
     title?: string;
     /** Set false for private events (e.g. turning on fingerprint sign-in). Default: notify everyone else. */
     notify?: boolean;
+    /** Notify exactly these people (e.g. a tour's participants) instead of all home sharers. */
+    audience?: string[];
     before?: unknown;
     after?: unknown;
   },
@@ -52,9 +55,11 @@ export async function audit(
     ],
   );
   if (e.notify === false) return;
+  const send = (payload: Parameters<typeof notifyOthers>[1]) =>
+    e.audience ? notifyUsers(e.audience.filter((id) => id !== e.actorId), payload) : notifyOthers(e.actorId, payload);
   const notify = () =>
     after(() =>
-      notifyOthers(e.actorId, {
+      send({
         title: e.title ?? defaultTitle(e.entity, e.action, e.actorName),
         body: e.summary,
         url: URLS[e.entity],
@@ -81,6 +86,7 @@ const NOUN: Partial<Record<Entity, string>> = {
   transfer: "a transfer",
   rice: "a turn",
   tracker: "a turn tracker",
+  tour: "a tour",
   category: "a category",
   backup: "a backup",
 };

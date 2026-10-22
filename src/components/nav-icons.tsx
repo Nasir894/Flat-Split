@@ -31,15 +31,18 @@ export function AddIcon({ className }: P) {
   );
 }
 
-export function RiceIcon({ className }: P) {
+/** Turns: a rounded tile with two chasing arrows (taking turns in a cycle). */
+export function TurnsIcon({ className }: P) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
-      <path d="M3.5 11h17a1 1 0 0 1 1 1.1 9.6 9.6 0 0 1-6 7.6V21a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1.3a9.6 9.6 0 0 1-6-7.6 1 1 0 0 1 1-1.1z" fill="currentColor" />
-      <path d="M7 9.2c0-2 1.6-3.2 3-3.2 0-1.6 1.2-3 3-3s3 1.4 3 3c1.4 0 3 1.2 3 3.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity=".55" />
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="currentColor" />
+      <path d="M16.6 9.6A5 5 0 0 0 7.6 9" fill="none" stroke="var(--nav-bg)" strokeWidth="2.1" strokeLinecap="round" />
+      <path d="M16.9 6.6v3.2h-3.2" fill="none" stroke="var(--nav-bg)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7.4 14.4a5 5 0 0 0 9 .6" fill="none" stroke="var(--nav-bg)" strokeWidth="2.1" strokeLinecap="round" />
+      <path d="M7.1 17.4v-3.2h3.2" fill="none" stroke="var(--nav-bg)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
-
 export function StatsIcon({ className }: P) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>

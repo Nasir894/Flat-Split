@@ -8,20 +8,21 @@ import { audit, userName } from "./audit";
 // backup would be trivial to crack. Restored members who don't exist yet set a new PIN.
 
 export async function exportBackup() {
-  const [users, categories, expenses, expenseShares, transfers, riceEntries, auditLog, trackers] = await Promise.all([
-    query(`select id, name, color, created_at as "createdAt", approved_by as "addedBy", approved_at as "approvedAt"
+  const [users, categories, expenses, expenseShares, transfers, riceEntries, auditLog, trackers, tours, tourParticipants, tourPlanItems] =
+    await Promise.all([
+    query(`select id, name, color, role, created_at as "createdAt", approved_by as "addedBy", approved_at as "approvedAt"
            from users where status = 'active' order by created_at`),
     query(`select id, name, emoji, is_default as "isDefault", created_by as "createdBy", created_at as "createdAt",
                   deleted_by as "deletedBy", deleted_at as "deletedAt" from categories order by created_at`),
     query(`select id, payer_id as "payerId", amount::int8::float8 as amount, category_id as "categoryId", description,
                   spent_at as "spentAt", created_by as "createdBy", created_at as "createdAt", updated_by as "updatedBy",
-                  updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version
+                  updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version, tour_id as "tourId"
            from expenses order by spent_at`),
     query(`select expense_id as "expenseId", user_id as "userId", amount::float8 as amount from expense_shares`),
     query(`select id, from_user_id as "fromUserId", to_user_id as "toUserId", amount::float8 as amount, note,
                   sent_at as "sentAt", created_by as "createdBy", created_at as "createdAt", updated_by as "updatedBy",
                   updated_at as "updatedAt", deleted_by as "deletedBy", deleted_at as "deletedAt", version,
-                  status, responded_by as "respondedBy", responded_at as "respondedAt"
+                  status, responded_by as "respondedBy", responded_at as "respondedAt", tour_id as "tourId", settlement
            from transfers order by sent_at`),
     query(`select id, user_id as "userId", given_at as "givenAt", note, created_by as "createdBy",
                   created_at as "createdAt", updated_by as "updatedBy", updated_at as "updatedAt",
@@ -31,7 +32,15 @@ export async function exportBackup() {
                   created_at as "createdAt" from audit_log order by id`),
     query(`select id, name, emoji, member_ids as "memberIds", is_default as "isDefault", created_by as "createdBy",
                   created_at as "createdAt", deleted_by as "deletedBy", deleted_at as "deletedAt" from trackers order by created_at`),
+    query(`select id, name, emoji, status, to_char(start_date, 'YYYY-MM-DD') as "startDate", to_char(end_date, 'YYYY-MM-DD') as "endDate",
+                  notes, created_by as "createdBy", created_at as "createdAt", started_at as "startedAt", started_by as "startedBy",
+                  closed_at as "closedAt", closed_by as "closedBy", deleted_at as "deletedAt", deleted_by as "deletedBy"
+           from tours order by created_at`),
+    query(`select tour_id as "tourId", user_id as "userId" from tour_participants`),
+    query(`select id, tour_id as "tourId", label, category_id as "categoryId", amount::float8 as amount,
+                  created_by as "createdBy", created_at as "createdAt" from tour_plan_items order by created_at`),
   ]);
+
   return {
     app: "flat-split",
     format: 1,
@@ -43,6 +52,9 @@ export async function exportBackup() {
     transfers,
     riceEntries,
     trackers,
+    tours,
+    tourParticipants,
+    tourPlanItems,
     auditLog,
   };
 }
@@ -64,7 +76,15 @@ const backupSchema = z.object({
   app: z.literal("flat-split", { error: "This is not a Flat Split backup file" }),
   format: z.literal(1),
   users: z.array(
-    z.object({ id, name: z.string().min(1).max(40), color: z.string().max(20), createdAt: ts, addedBy: opt(id), approvedAt: opt(ts) }),
+    z.object({
+      id,
+      name: z.string().min(1).max(40),
+      color: z.string().max(20),
+      role: z.enum(["member", "guest"]).default("member"),
+      createdAt: ts,
+      addedBy: opt(id),
+      approvedAt: opt(ts),
+    }),
   ),
   categories: z.array(
     z.object({
@@ -87,6 +107,7 @@ const backupSchema = z.object({
       description: z.string(),
       spentAt: ts,
       ...meta,
+      tourId: opt(id),
     }),
   ),
   expenseShares: z.array(z.object({ expenseId: id, userId: id, amount: z.number().int().nonnegative() })),
@@ -103,6 +124,8 @@ const backupSchema = z.object({
       status: z.enum(["pending", "approved", "declined"]).default("approved"),
       respondedBy: opt(id),
       respondedAt: opt(ts),
+      tourId: opt(id),
+      settlement: z.boolean().default(false),
     }),
   ),
   riceEntries: z.array(
@@ -124,8 +147,35 @@ const backupSchema = z.object({
       }),
     )
     .default([]),
+  // Older backups have no tours.
+  tours: z
+    .array(
+      z.object({
+        id,
+        name: z.string().min(1),
+        emoji: z.string(),
+        status: z.enum(["planned", "active", "closed"]),
+        startDate: opt(z.string()),
+        endDate: opt(z.string()),
+        notes: z.string().default(""),
+        createdBy: opt(id),
+        createdAt: ts,
+        startedAt: opt(ts),
+        startedBy: opt(id),
+        closedAt: opt(ts),
+        closedBy: opt(id),
+        deletedAt: opt(ts),
+        deletedBy: opt(id),
+      }),
+    )
+    .default([]),
+  tourParticipants: z.array(z.object({ tourId: id, userId: id })).default([]),
+  tourPlanItems: z
+    .array(z.object({ id, tourId: id, label: z.string(), categoryId: opt(id), amount: z.number().int().nonnegative(), createdBy: opt(id), createdAt: ts }))
+    .default([]),
   auditLog: z
     .array(
+
       z.object({
         entity: z.string(),
         entityId: opt(id),
@@ -163,8 +213,8 @@ export async function importBackup(actorId: string, raw: unknown) {
       map.set(u.id, target);
       if (!ids.has(target)) {
         await q(
-          "insert into users (id, name, color, created_at, approved_at, status) values ($1, $2, $3, $4, $5, 'active')",
-          [target, u.name, u.color, u.createdAt, u.approvedAt],
+          "insert into users (id, name, color, created_at, approved_at, status, role) values ($1, $2, $3, $4, $5, 'active', $6)",
+          [target, u.name, u.color, u.createdAt, u.approvedAt, u.role],
         );
         inserted.push(u);
       }
@@ -185,6 +235,10 @@ export async function importBackup(actorId: string, raw: unknown) {
     await q("delete from expenses");
     await q("delete from transfers");
     await q("delete from rice_entries");
+    // Tour rows reference categories and users, so they go first.
+    await q("delete from tour_plan_items");
+    await q("delete from tour_participants");
+    await q("delete from tours");
     await q("delete from categories");
     await q("delete from trackers where not is_default");
 
@@ -205,6 +259,49 @@ export async function importBackup(actorId: string, raw: unknown) {
         deleted_at: c.deletedAt,
       })),
     );
+    await bulk(
+      `insert into tours (id, name, emoji, status, start_date, end_date, notes, created_by, created_at, started_at, started_by,
+                          closed_at, closed_by, deleted_at, deleted_by)
+       select * from json_to_recordset($1::json) as x(id uuid, name text, emoji text, status text, start_date date, end_date date,
+         notes text, created_by uuid, created_at timestamptz, started_at timestamptz, started_by uuid, closed_at timestamptz,
+         closed_by uuid, deleted_at timestamptz, deleted_by uuid)`,
+      b.tours.map((t) => ({
+        id: t.id,
+        name: t.name,
+        emoji: t.emoji,
+        status: t.status,
+        start_date: t.startDate,
+        end_date: t.endDate,
+        notes: t.notes,
+        created_by: mu(t.createdBy),
+        created_at: t.createdAt,
+        started_at: t.startedAt,
+        started_by: mu(t.startedBy),
+        closed_at: t.closedAt,
+        closed_by: mu(t.closedBy),
+        deleted_at: t.deletedAt,
+        deleted_by: mu(t.deletedBy),
+      })),
+    );
+    await bulk(
+      `insert into tour_participants (tour_id, user_id)
+       select * from json_to_recordset($1::json) as x(tour_id uuid, user_id uuid) on conflict do nothing`,
+      b.tourParticipants.map((p) => ({ tour_id: p.tourId, user_id: mu(p.userId) })),
+    );
+    await bulk(
+      `insert into tour_plan_items (id, tour_id, label, category_id, amount, created_by, created_at)
+       select * from json_to_recordset($1::json) as x(id uuid, tour_id uuid, label text, category_id uuid, amount bigint,
+         created_by uuid, created_at timestamptz)`,
+      b.tourPlanItems.map((p) => ({
+        id: p.id,
+        tour_id: p.tourId,
+        label: p.label,
+        category_id: p.categoryId,
+        amount: p.amount,
+        created_by: mu(p.createdBy),
+        created_at: p.createdAt,
+      })),
+    );
     const metaRow = (r: z.infer<typeof backupSchema>["expenses"][number] | z.infer<typeof backupSchema>["transfers"][number] | z.infer<typeof backupSchema>["riceEntries"][number]) => ({
       created_by: mu(r.createdBy) ?? actorId,
       created_at: r.createdAt,
@@ -218,9 +315,9 @@ export async function importBackup(actorId: string, raw: unknown) {
                        deleted_by uuid, deleted_at timestamptz, version int`;
     await bulk(
       `insert into expenses (id, payer_id, amount, category_id, description, spent_at, created_by, created_at,
-                             updated_by, updated_at, deleted_by, deleted_at, version)
+                             updated_by, updated_at, deleted_by, deleted_at, version, tour_id)
        select * from json_to_recordset($1::json) as x(id uuid, payer_id uuid, amount bigint, category_id uuid,
-         description text, spent_at timestamptz, ${META_COLS})`,
+         description text, spent_at timestamptz, ${META_COLS}, tour_id uuid)`,
       b.expenses.map((e) => ({
         id: e.id,
         payer_id: mu(e.payerId),
@@ -229,6 +326,7 @@ export async function importBackup(actorId: string, raw: unknown) {
         description: e.description,
         spent_at: e.spentAt,
         ...metaRow(e),
+        tour_id: e.tourId,
       })),
     );
     await bulk(
@@ -238,9 +336,11 @@ export async function importBackup(actorId: string, raw: unknown) {
     );
     await bulk(
       `insert into transfers (id, from_user_id, to_user_id, amount, note, sent_at, created_by, created_at,
-                              updated_by, updated_at, deleted_by, deleted_at, version, status, responded_by, responded_at)
+                              updated_by, updated_at, deleted_by, deleted_at, version, status, responded_by, responded_at,
+                              tour_id, settlement)
        select * from json_to_recordset($1::json) as x(id uuid, from_user_id uuid, to_user_id uuid, amount bigint,
-         note text, sent_at timestamptz, ${META_COLS}, status text, responded_by uuid, responded_at timestamptz)`,
+         note text, sent_at timestamptz, ${META_COLS}, status text, responded_by uuid, responded_at timestamptz,
+         tour_id uuid, settlement boolean)`,
       b.transfers.map((t) => ({
         id: t.id,
         from_user_id: mu(t.fromUserId),
@@ -252,6 +352,8 @@ export async function importBackup(actorId: string, raw: unknown) {
         status: t.status,
         responded_by: mu(t.respondedBy),
         responded_at: t.respondedAt,
+        tour_id: t.tourId,
+        settlement: t.settlement,
       })),
     );
     await bulk(

@@ -11,7 +11,7 @@ import { ApiError } from "@/lib/api";
 export const CACHE_KEY = "flat-split-cache";
 // Bump whenever an API response changes shape: saved data from older versions is then discarded
 // instead of being fed to new code (which is what crashed the Stats page).
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 
 function makeClient() {
   return new QueryClient({

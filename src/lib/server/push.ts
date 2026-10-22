@@ -15,10 +15,14 @@ function configure() {
 
 export type PushPayload = { title: string; body: string; url?: string; tag?: string; kind?: string; entity?: string };
 
-/** Sends a push to every subscribed device except the actor's own. */
+/** Sends a push to every home sharer's devices except the actor's own (guests only get tour pushes). */
 export async function notifyOthers(actorId: string, payload: PushPayload) {
   if (!configure()) return;
-  const subs = await query<Sub>("select endpoint, p256dh, auth from push_subscriptions where user_id <> $1", [actorId]);
+  const subs = await query<Sub>(
+    `select s.endpoint, s.p256dh, s.auth from push_subscriptions s join users u on u.id = s.user_id
+     where s.user_id <> $1 and u.role = 'member' and u.status = 'active'`,
+    [actorId],
+  );
   await sendAll(subs, payload);
 }
 

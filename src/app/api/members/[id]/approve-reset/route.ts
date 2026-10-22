@@ -1,6 +1,6 @@
 import { withTx } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
-import { requireUser } from "@/lib/server/auth";
+import { requireMember } from "@/lib/server/auth";
 import { audit, userName } from "@/lib/server/audit";
 
 type Ctx = RouteContext<"/api/members/[id]/approve-reset">;
@@ -8,7 +8,7 @@ type Ctx = RouteContext<"/api/members/[id]/approve-reset">;
 // A flatmate vouches for someone who lost both PIN and recovery code. Valid for 24 hours,
 // logged permanently and pushed to everyone so a sneaky reset can't go unnoticed.
 export const POST = route<Ctx>(async (_req, ctx) => {
-  const actorId = await requireUser();
+  const actorId = await requireMember();
   const { id } = await ctx.params;
   if (id === actorId) throw new HttpError(400, "Another flatmate has to approve your reset");
   return withTx(async (q) => {

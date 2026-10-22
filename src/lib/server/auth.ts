@@ -5,6 +5,9 @@ import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { HttpError } from "./http";
 import { env } from "./env";
+import { query } from "./db";
+
+export type Role = "member" | "guest";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 // Read lazily so a missing SESSION_SECRET fails loudly instead of signing with "undefined".
@@ -32,7 +35,9 @@ export async function verifyPin(pin: string, stored: string | null): Promise<boo
 }
 
 export async function startSession(userId: string) {
-  const token = await new SignJWT({})
+  // The role travels in the session so every request can be checked without a database lookup.
+  const [u] = await query<{ role: Role }>("select role from users where id = $1", [userId]);
+  const token = await new SignJWT({ role: u?.role ?? "member" })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
@@ -61,16 +66,35 @@ export async function endSession() {
   jar.delete(SIGNED_IN_HINT);
 }
 
-export async function sessionUserId(): Promise<string | null> {
+export async function sessionUser(): Promise<{ id: string; role: Role } | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
-    if (payload.typ === "pending") return null; // a pending token is never a real session
-    return payload.sub ?? null;
+    if (payload.typ === "pending" || !payload.sub) return null; // a pending token is never a real session
+    // Sessions from before roles existed belong to home sharers.
+    return { id: payload.sub, role: payload.role === "guest" ? "guest" : "member" };
   } catch {
     return null;
   }
+}
+
+export async function sessionUserId(): Promise<string | null> {
+  return (await sessionUser())?.id ?? null;
+}
+
+/** Signed in as anyone (home sharer or tour guest). */
+export async function requireSession() {
+  const u = await sessionUser();
+  if (!u) throw new HttpError(401, "Please sign in");
+  return u;
+}
+
+/** Home sharers only: guests can only use the tour section. */
+export async function requireMember(): Promise<string> {
+  const u = await requireSession();
+  if (u.role !== "member") throw new HttpError(403, "Only home sharers can do this");
+  return u.id;
 }
 
 // A member waiting for approval gets a separate "pending" cookie. It grants no access to

@@ -1,10 +1,10 @@
 import { query } from "@/lib/server/db";
 import { route } from "@/lib/server/http";
-import { requireUser } from "@/lib/server/auth";
+import { requireMember } from "@/lib/server/auth";
 
 // Audit feed. ?entityId=<uuid> gives one record's full history (with before/after states).
 export const GET = route(async (req) => {
-  await requireUser();
+  await requireMember();
   const url = new URL(req.url);
   const entityId = url.searchParams.get("entityId");
   const cursor = Number(url.searchParams.get("cursor")) || null;

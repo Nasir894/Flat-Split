@@ -26,7 +26,8 @@ export async function getAnalytics(url: URL) {
 
   // $1 from, $2 to, $3 category (nullable), $4 time zone
   const args = [p.from, p.to, p.category ?? null, TZ];
-  const where = `e.deleted_at is null and e.spent_at >= $1 and e.spent_at < $2
+  // Home spending only: tours have their own breakdown.
+  const where = `e.deleted_at is null and e.tour_id is null and e.spent_at >= $1 and e.spent_at < $2
                  and ($3::uuid is null or e.category_id = $3) and $4::text is not null`;
 
   const [daily, byCategory, byPayer, byConsumer, byWeekday, top, totals, previous] = await Promise.all([
@@ -70,7 +71,7 @@ export async function getAnalytics(url: URL) {
     ),
     query(
       `select coalesce(sum(e.amount), 0)::float8 as total, count(*)::int as count
-       from expenses e where e.deleted_at is null and e.spent_at >= $1 and e.spent_at < $2
+       from expenses e where e.deleted_at is null and e.tour_id is null and e.spent_at >= $1 and e.spent_at < $2
          and ($3::uuid is null or e.category_id = $3)`,
       [prevFrom, p.from, p.category ?? null],
     ),
