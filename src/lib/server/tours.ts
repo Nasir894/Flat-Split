@@ -285,7 +285,9 @@ export async function exportTours(actor: Actor) {
     query(
       `select e.tour_id as "tourId", e.spent_at as "spentAt", e.description, e.category_id as "categoryId",
               e.payer_id as "payerId", e.amount::float8 as amount, (e.deleted_at is not null) as deleted,
-              coalesce((select array_agg(s.user_id) from expense_shares s where s.expense_id = e.id), '{}') as "consumerIds"
+              coalesce((select array_agg(s.user_id) from expense_shares s where s.expense_id = e.id), '{}') as "consumerIds",
+              coalesce((select json_agg(json_build_object('userId', s.user_id, 'amount', s.amount::float8))
+                        from expense_shares s where s.expense_id = e.id), '[]') as shares
        from expenses e where e.tour_id = any($1::uuid[]) order by e.spent_at`,
       [ids],
     ),
@@ -295,8 +297,9 @@ export async function exportTours(actor: Actor) {
       [ids],
     ),
     query(
-      `select tour_id as "tourId", from_user_id as "fromUserId", to_user_id as "toUserId", amount::float8 as amount, status
-       from transfers where tour_id = any($1::uuid[]) and settlement and deleted_at is null`,
+      `select tour_id as "tourId", from_user_id as "fromUserId", to_user_id as "toUserId", amount::float8 as amount, status,
+              settlement, note, sent_at as "sentAt"
+       from transfers where tour_id = any($1::uuid[]) and deleted_at is null order by sent_at`,
       [ids],
     ),
     query(

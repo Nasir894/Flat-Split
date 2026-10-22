@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Clock, Luggage, Receipt } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Clock, Luggage, MessageCircle, Receipt } from "lucide-react";
 import { useLookups, useRecords, useSummary } from "@/hooks/use-data";
 import { formatTaka, settlePlan } from "@/lib/money";
 import type { Expense, Transfer } from "@/lib/types";
+import { getSeen } from "@/lib/seen";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,11 +49,11 @@ function HomePage() {
   const maxAbs = Math.max(1, ...balances.map((b) => Math.abs(b.balance)));
   // Settle-up between home sharers assumes pending guest settlements from closed tours will be paid.
   const plan = settlePlan(data.balances.map((b) => ({ id: b.id, balance: b.planBalance ?? b.balance })));
-  // Trackers where it's my turn (I owe at least once).
-  const myTurns = (data.trackers ?? []).filter((t) => (t.status.members[meId]?.owed ?? 0) > 0);
   // The ongoing tour, else the most recent plan: its icon and name go on the Tours button.
   const featured = (data.tours ?? []).find((t) => t.status === "active") ?? (data.tours ?? []).find((t) => t.status === "planned");
   const awaiting = data.awaitingMe ?? [];
+  const lastChat = data.lastChat;
+  const unreadChat = Boolean(lastChat && lastChat.userId !== meId && lastChat.id > getSeen("chat"));
 
   // Expenses and transfers in one timeline, newest first.
   const ex = (expenses.data?.pages[0]?.items ?? []).map((e) => ({ kind: "expense" as const, at: e.spentAt, e }));
@@ -76,14 +77,15 @@ function HomePage() {
         </div>
         <Amount poisha={Math.abs(mine)} className="mt-1 block text-[2.9rem] leading-tight font-bold" />
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link href="/rice" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
-            <span className="flex size-9 items-center justify-center rounded-full bg-foreground/10 text-lg">
-              {myTurns[0]?.emoji ?? "🔁"}
+          <Link href="/chat" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
+            <span className="relative flex size-9 items-center justify-center rounded-full bg-foreground/10">
+              <MessageCircle className="size-4" />
+              {unreadChat && <span className="absolute top-0 right-0 size-2.5 rounded-full bg-brand ring-2 ring-background" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">Turns</span>
+              <span className="block text-sm font-medium">House chat</span>
               <span className="block truncate text-[11px] text-foreground/60">
-                {myTurns.length ? `Your turn: ${myTurns.map((t) => t.name).join(", ")}` : "All caught up"}
+                {lastChat?.body ? `${lastChat.userId === meId ? "You" : name(lastChat.userId)}: ${lastChat.body}` : "Say hi to the flat"}
               </span>
             </span>
             <ChevronRight className="size-4 text-foreground/50" />
@@ -132,7 +134,7 @@ function HomePage() {
           <span className="max-w-full truncate px-1">{featured ? featured.name : "Tours"}</span>
         </Link>
         <QuickAction icon={Receipt} label="Add Expense" onClick={() => quickAdd("expense")} />
-        <QuickAction icon={ArrowLeftRight} label="Send Money" onClick={() => quickAdd("transfer")} />
+        <QuickAction icon={ArrowLeftRight} label="Transfer money" onClick={() => quickAdd("transfer")} />
       </div>
 
       {/* Balances */}

@@ -67,7 +67,7 @@ export type Summary = {
   balances: Balance[];
   rice: RiceStatus;
   awaitingMe: Transfer[];
-  lastChat: { id: number; userId: string; createdAt: string } | null;
+  lastChat: { id: number; userId: string; createdAt: string; body: string | null } | null;
   lastActivity: { id: number; userId: string | null } | null;
   trackers: Tracker[];
 };

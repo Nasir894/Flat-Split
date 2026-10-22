@@ -1,6 +1,7 @@
 // Tour archive downloads (runs in the browser; libraries load only when used).
-//  - Excel (.xlsx, also opens in Google Sheets): Tours, Expenses, Balances, Plan, Settlements sheets
-//  - CSV: every tour expense in one sheet
+//  - Excel (.xlsx, also opens in Google Sheets): Tours, Expenses, Transfers, Balances, Plan, Settlements, Deleted
+//  - CSV: every live tour expense in one sheet
+// Deleted expenses are left out of the main sheets and listed on "Deleted".
 //  - PDF: a summary per tour
 import { format } from "date-fns";
 import { api } from "./api";
@@ -28,10 +29,12 @@ type Archive = {
     amount: number;
     deleted: boolean;
     consumerIds: string[];
+    shares: { userId: string; amount: number }[];
   }[];
   nets: { tourId: string; id: string; paid: number; consumed: number; net: number }[];
   plan: { tourId: string; label: string; categoryId: string | null; amount: number }[];
-  settlements: { tourId: string; fromUserId: string; toUserId: string; amount: number; status: string }[];
+  // Every live transfer on the tour; `settlement` marks the ones created when the tour closed.
+  settlements: { tourId: string; fromUserId: string; toUserId: string; amount: number; status: string; settlement: boolean; note: string; sentAt: string }[];
   people: { id: string; name: string; role: string }[];
   categories: { id: string; name: string; emoji: string }[];
 };
@@ -80,16 +83,30 @@ function sheets(a: Archive) {
       "Spent (৳)": taka(t.spent),
       "Over / under (৳)": taka(t.spent - t.planned),
     })),
-    Expenses: a.expenses.map((e) => ({
-      Tour: tourName(e.tourId),
-      Date: d(e.spentAt),
-      Description: e.description,
-      Category: category(e.categoryId),
-      "Paid by": person(e.payerId),
-      "Amount (৳)": taka(e.amount),
-      "Split between": e.consumerIds.map(person).join(", "),
-      Deleted: e.deleted ? "yes" : "",
-    })),
+    Expenses: a.expenses
+      .filter((e) => !e.deleted)
+      .map((e) => ({
+        Tour: tourName(e.tourId),
+        Date: d(e.spentAt),
+        Description: e.description,
+        Category: category(e.categoryId),
+        "Paid by": person(e.payerId),
+        "Amount (৳)": taka(e.amount),
+        "Split between": e.consumerIds.map(person).join(", "),
+        // One column per person with their exact share.
+        ...Object.fromEntries(a.people.map((p) => [`${p.name} share (৳)`, taka(e.shares.find((s) => s.userId === p.id)?.amount ?? 0)])),
+      })),
+    Transfers: a.settlements
+      .filter((s) => !s.settlement)
+      .map((s) => ({
+        Tour: tourName(s.tourId),
+        Date: d(s.sentAt),
+        From: person(s.fromUserId),
+        To: person(s.toUserId),
+        "Amount (৳)": taka(s.amount),
+        Note: s.note,
+        Status: s.status,
+      })),
     Balances: a.nets.map((n) => ({
       Tour: tourName(n.tourId),
       Person: person(n.id),
@@ -99,13 +116,16 @@ function sheets(a: Archive) {
       "Net (৳)": taka(n.net),
     })),
     Plan: a.plan.map((p) => ({ Tour: tourName(p.tourId), "Plan line": p.label, Category: p.categoryId ? category(p.categoryId) : "", "Budget (৳)": taka(p.amount) })),
-    Settlements: a.settlements.map((s) => ({
+    Settlements: a.settlements.filter((s) => s.settlement).map((s) => ({
       Tour: tourName(s.tourId),
       From: person(s.fromUserId),
       To: person(s.toUserId),
       "Amount (৳)": taka(s.amount),
       Status: s.status,
     })),
+    Deleted: a.expenses
+      .filter((e) => e.deleted)
+      .map((e) => ({ Tour: tourName(e.tourId), Date: d(e.spentAt), Description: e.description, "Paid by": person(e.payerId), "Amount (৳)": taka(e.amount) })),
   };
 }
 
@@ -194,7 +214,7 @@ export async function downloadToursPdf(tourId?: string) {
       ["Person", "Role", "Paid", "Share", "Net"],
       a.nets.filter((n) => n.tourId === t.id).map((n) => [person(n.id), role(n.id), tk(n.paid), tk(n.consumed), tk(n.net)]),
     );
-    const st = a.settlements.filter((s) => s.tourId === t.id);
+    const st = a.settlements.filter((s) => s.tourId === t.id && s.settlement);
     if (st.length) {
       heading("Settlement with guests");
       table(["From", "To", "Amount", "Status"], st.map((s) => [person(s.fromUserId), person(s.toUserId), tk(s.amount), s.status]));

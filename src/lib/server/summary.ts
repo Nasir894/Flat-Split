@@ -70,7 +70,10 @@ async function memberSummary(actor: Actor) {
     query(`select ${RICE_COLS} from rice_entries r where r.deleted_at is null`),
     awaitingFor(meId),
     // Latest chat message, for the unread dot.
-    query(`select id::int as id, user_id as "userId", created_at as "createdAt" from chat_messages order by id desc limit 1`),
+    query(
+      `select id::int as id, user_id as "userId", created_at as "createdAt", case when deleted_at is null then body end as body
+       from chat_messages order by id desc limit 1`,
+    ),
     // Latest activity-log entry, for the bell dot.
     query(`select id::int as id, actor_id as "userId" from audit_log order by id desc limit 1`),
     query<{ id: string; name: string; emoji: string; memberIds: string[] | null; isDefault: boolean; createdAt: Date }>(

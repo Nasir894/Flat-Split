@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { ArrowLeftRight, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Expenses and Transfers share the "Money" tab in the bottom nav. */
+/** Expenses and Transfers share the "Records" tab in the bottom nav. */
 export function MoneyTabs() {
   const pathname = usePathname();
   const tabs = [

@@ -18,7 +18,7 @@ import { UserAvatar } from "./member-avatar";
 // Two tabs either side of the centre "+" button. Transfers live under Expenses (tab on that page).
 const NAV = [
   { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" || p.startsWith("/tours") },
-  { href: "/expenses", label: "Money", icon: WalletIcon, match: (p: string) => p.startsWith("/expenses") || p.startsWith("/transfers") },
+  { href: "/expenses", label: "Records", icon: WalletIcon, match: (p: string) => p.startsWith("/expenses") || p.startsWith("/transfers") },
   null,
   { href: "/rice", label: "Turns", icon: TurnsIcon, match: (p: string) => p.startsWith("/rice") },
   { href: "/analytics", label: "Stats", icon: StatsIcon, match: (p: string) => p.startsWith("/analytics") },
@@ -26,8 +26,8 @@ const NAV = [
 
 const TITLES: Record<string, string> = {
   "/": "Flat Split",
-  "/expenses": "Money",
-  "/transfers": "Money",
+  "/expenses": "Records",
+  "/transfers": "Records",
   "/rice": "Turns",
   "/analytics": "Analytics",
   "/activity": "Activity",

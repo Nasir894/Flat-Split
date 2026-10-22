@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { format } from "date-fns";
-import { Bell, Download, FileJson, FileText, Eye, EyeOff, Copy, House, KeyRound, LifeBuoy, Loader2, LogOut, Monitor, Moon, RotateCcw, Send, Smartphone, Sun, Tags, Trash2, Upload } from "lucide-react";
+import { Bell, Download, FileJson, FileSpreadsheet, FileText, Eye, EyeOff, Copy, House, KeyRound, LifeBuoy, Loader2, LogOut, Monitor, Moon, RotateCcw, Send, Sheet, Smartphone, Sun, Tags, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useLookups } from "@/hooks/use-data";
@@ -82,6 +82,9 @@ export default function SettingsPage() {
       const [{ downloadPdf }, data] = await Promise.all([import("@/lib/pdf"), fetchBackup()]);
       await downloadPdf(data);
     });
+
+  const exportExcel = () => run("xlsx", async () => (await import("@/lib/records-export")).downloadRecordsExcel());
+  const exportCsv = () => run("csv", async () => (await import("@/lib/records-export")).downloadRecordsCsv());
 
   const logout = () =>
     run("logout", async () => {
@@ -163,9 +166,18 @@ export default function SettingsPage() {
       <Card className="rise">
         <CardHeader>
           <CardTitle className="text-base">Backup &amp; restore</CardTitle>
-          <CardDescription>Anyone can download a backup at any time.</CardDescription>
+          <CardDescription>
+            Anyone can download a backup at any time. Excel and Sheets include every expense, transfer, turn and tour; deleted
+            ones are kept on their own sheet.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={exportExcel} disabled={busy === "xlsx"}>
+            {busy === "xlsx" ? <Loader2 className="animate-spin" /> : <FileSpreadsheet />} Excel
+          </Button>
+          <Button variant="outline" onClick={exportCsv} disabled={busy === "csv"}>
+            {busy === "csv" ? <Loader2 className="animate-spin" /> : <Sheet />} Sheets (CSV)
+          </Button>
           <Button variant="outline" onClick={exportPdf} disabled={busy === "pdf"}>
             {busy === "pdf" ? <Loader2 className="animate-spin" /> : <FileText />} PDF
           </Button>
