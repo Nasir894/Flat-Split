@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, UserPlus } from "lucide-react";
+import { ArrowLeft, Home, Hourglass, Loader2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { PinPad } from "@/components/pin-pad";
 import { MemberAvatar } from "@/components/member-avatar";
@@ -14,34 +14,48 @@ import { Label } from "@/components/ui/label";
 import { markUnlocked } from "@/components/app-lock";
 
 type Member = { id: string; name: string; color: string; needsPin: boolean; resetApproved: boolean };
+type MembersResponse = {
+  members: Member[];
+  meId: string | null;
+  houseExists: boolean;
+  pending: { id: string; name: string } | null;
+};
+type SignupResult = { id: string; pending: boolean; recoveryCode: string };
 
 export default function LoginPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["members"],
-    queryFn: () => api<{ members: Member[]; meId: string | null }>("/api/auth/members"),
+    queryFn: () => api<MembersResponse>("/api/auth/members"),
     staleTime: 0,
   });
   const [picked, setPicked] = useState<Member | null>(null);
   const [chosenMode, setMode] = useState<"pick" | "join" | "recover">("pick");
-  const mode = data && data.members.length === 0 ? "join" : chosenMode;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  // A freshly issued recovery code, and what to do once the user has saved it.
+  const [recovery, setRecovery] = useState<{ code: string; then: "enter" | "wait" } | null>(null);
+  const [justRequested, setJustRequested] = useState<string | null>(null);
+
+  const waitingFor = justRequested ?? data?.pending?.name ?? null;
+  const mode = !data?.houseExists ? "create" : waitingFor && !recovery ? "waiting" : chosenMode;
 
   useEffect(() => {
     // Already signed in on this device (and not in the middle of showing a recovery code).
-    if (data?.meId && !recoveryCode) router.replace("/");
-  }, [data, router, recoveryCode]);
+    if (data?.meId && !recovery) router.replace("/");
+  }, [data, router, recovery]);
 
-  const done = async () => {
+  const enter = async () => {
     markUnlocked();
     await qc.resetQueries();
     router.replace("/");
   };
-  // Sign-up and PIN recovery both hand back a new recovery code to show before entering the app.
-  const doneWithCode = async (code: string) => setRecoveryCode(code);
+
+  const afterSignup = async (r: SignupResult, name: string) => {
+    if (r.pending) setJustRequested(name);
+    setRecovery({ code: r.recoveryCode, then: r.pending ? "wait" : "enter" });
+  };
 
   const login = async (pin: string) => {
     if (!picked) return;
@@ -49,7 +63,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await api("/api/auth/login", { body: { userId: picked.id, pin } });
-      await done();
+      await enter();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -72,12 +86,24 @@ export default function LoginPage() {
         <p className="text-sm text-muted-foreground">Shared spending, split fairly.</p>
       </div>
 
-      {isLoading ? (
+      {isLoading || !data ? (
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      ) : mode === "create" ? (
+        <SignupForm create onDone={afterSignup} />
+      ) : mode === "waiting" ? (
+        <WaitingForApproval
+          name={waitingFor!}
+          onApproved={enter}
+          onGone={async () => {
+            setJustRequested(null);
+            await refetch();
+            setMode("join");
+          }}
+        />
       ) : mode === "join" ? (
-        <JoinForm onDone={doneWithCode} onBack={data?.members.length ? back : undefined} />
+        <SignupForm onDone={afterSignup} onBack={back} />
       ) : mode === "recover" && picked ? (
-        <RecoverForm member={picked} onDone={doneWithCode} onBack={back} />
+        <RecoverForm member={picked} onDone={async (code) => setRecovery({ code, then: "enter" })} onBack={back} />
       ) : picked ? (
         <div className="rise flex flex-col items-center gap-4">
           <button
@@ -100,10 +126,14 @@ export default function LoginPage() {
         <div className="rise w-full space-y-4">
           <p className="text-center text-sm font-medium">Who are you?</p>
           <div className="grid grid-cols-3 gap-3">
-            {data?.members.map((m) => (
+            {data.members.map((m) => (
               <button
                 key={m.id}
-                onClick={() => (m.needsPin ? setMode("join") : setPicked(m))}
+                onClick={() => {
+                  setPicked(m);
+                  // Restored from a backup without a PIN: go straight to setting one.
+                  if (m.needsPin) setMode("recover");
+                }}
                 className="flex flex-col items-center gap-2 rounded-xl border bg-card p-3 transition active:scale-95"
               >
                 <MemberAvatar name={m.name} color={m.color} className="size-12" />
@@ -112,13 +142,95 @@ export default function LoginPage() {
             ))}
           </div>
           <Button variant="ghost" className="w-full" onClick={() => setMode("join")}>
-            <UserPlus /> Join the flat
+            <UserPlus /> New here? Ask to join
           </Button>
         </div>
       )}
 
-      <RecoveryCodeDialog code={recoveryCode} onDone={done} />
+      <RecoveryCodeDialog
+        code={recovery?.code ?? null}
+        onDone={() => {
+          const then = recovery?.then;
+          setRecovery(null);
+          if (then === "enter") enter();
+        }}
+      />
     </main>
+  );
+}
+
+/** Shown on a newcomer's device until someone already in the house approves (or declines) them. */
+function WaitingForApproval({
+  name,
+  onApproved,
+  onGone,
+}: {
+  name: string;
+  onApproved: () => Promise<void>;
+  onGone: () => Promise<void>;
+}) {
+  const [declined, setDeclined] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const entered = useRef(false);
+  const { data } = useQuery({
+    queryKey: ["join-status"],
+    queryFn: () => api<{ status: "pending" | "approved" | "declined" | "none"; approvedBy?: string }>("/api/auth/join-status"),
+    refetchInterval: (q) => (q.state.data?.status === "pending" || !q.state.data ? 4000 : false),
+    refetchOnWindowFocus: true,
+    gcTime: 0,
+  });
+
+  useEffect(() => {
+    if (data?.status === "approved") {
+      if (!entered.current) {
+        entered.current = true;
+        onApproved();
+      }
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to a polled server result
+    else if (data?.status === "declined" || data?.status === "none") setDeclined(true);
+  }, [data, onApproved]);
+
+  if (declined) {
+    return (
+      <div className="rise space-y-4 text-center">
+        <p className="font-medium">Your request wasn&apos;t approved</p>
+        <p className="text-sm text-muted-foreground">Talk to your flatmates, then you can ask again.</p>
+        <Button className="w-full" onClick={onGone}>
+          OK
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rise flex flex-col items-center gap-4 text-center">
+      <div className="flex size-16 items-center justify-center rounded-full bg-primary/10">
+        <Hourglass className="size-7 animate-pulse text-primary" />
+      </div>
+      <div className="space-y-1">
+        <p className="text-lg font-semibold">Waiting for approval</p>
+        <p className="text-sm text-muted-foreground">
+          Hi {name}! Your flatmates have been notified. As soon as someone already in the house approves you, you&apos;ll
+          get in automatically. You can keep this screen open.
+        </p>
+      </div>
+      {data?.status === "approved" && (
+        <p className="text-sm text-positive">Approved by {data.approvedBy}! Opening…</p>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={cancelling}
+        onClick={async () => {
+          setCancelling(true);
+          await api("/api/auth/join-status", { method: "DELETE" }).catch(() => {});
+          await onGone();
+        }}
+      >
+        Cancel request
+      </Button>
+    </div>
   );
 }
 
@@ -157,7 +269,16 @@ function pinProblem(pin: string, pin2: string) {
   return null;
 }
 
-function JoinForm({ onDone, onBack }: { onDone: (code: string) => Promise<void>; onBack?: () => void }) {
+/** `create`: the very first person sets up the house and picks its code. Otherwise: request to join. */
+function SignupForm({
+  create,
+  onDone,
+  onBack,
+}: {
+  create?: boolean;
+  onDone: (r: SignupResult, name: string) => Promise<void>;
+  onBack?: () => void;
+}) {
   const [form, setForm] = useState({ houseCode: "", name: "" });
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
@@ -166,13 +287,13 @@ function JoinForm({ onDone, onBack }: { onDone: (code: string) => Promise<void>;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const problem = pinProblem(pin, pin2);
+    const problem = create && form.houseCode.trim().length < 6 ? "House code must be at least 6 characters" : pinProblem(pin, pin2);
     setError(problem);
     if (problem) return;
     setBusy(true);
     try {
-      const r = await api<{ recoveryCode: string }>("/api/auth/signup", { body: { ...form, pin } });
-      await onDone(r.recoveryCode);
+      const r = await api<SignupResult>("/api/auth/signup", { body: { ...form, pin } });
+      await onDone(r, form.name.trim());
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -182,20 +303,20 @@ function JoinForm({ onDone, onBack }: { onDone: (code: string) => Promise<void>;
 
   return (
     <form onSubmit={submit} className="rise w-full space-y-4">
-      <p className="text-center text-sm text-muted-foreground">
-        Ask a flatmate for the house code. Restored from a backup? Use your old name to set a new PIN.
-      </p>
-      <div className="space-y-2">
-        <Label htmlFor="code">House code</Label>
-        <Input
-          id="code"
-          autoComplete="off"
-          autoCapitalize="none"
-          value={form.houseCode}
-          onChange={(e) => setForm((f) => ({ ...f, houseCode: e.target.value }))}
-          required
-        />
-      </div>
+      {create ? (
+        <div className="space-y-1 text-center">
+          <p className="flex items-center justify-center gap-2 font-semibold">
+            <Home className="size-4 text-primary" /> Create your house
+          </p>
+          <p className="text-sm text-muted-foreground">
+            You&apos;re the first one here. Choose a house code: flatmates need it to ask to join, and you approve them.
+          </p>
+        </div>
+      ) : (
+        <p className="text-center text-sm text-muted-foreground">
+          Enter the house code from a flatmate. Someone already in the house must approve your request.
+        </p>
+      )}
       <div className="space-y-2">
         <Label htmlFor="name">Your name</Label>
         <Input
@@ -207,10 +328,23 @@ function JoinForm({ onDone, onBack }: { onDone: (code: string) => Promise<void>;
           required
         />
       </div>
-      <NewPinFields pin={pin} pin2={pin2} onPin={setPin} onPin2={setPin2} />
+      <div className="space-y-2">
+        <Label htmlFor="code">{create ? "Choose a house code" : "House code"}</Label>
+        <Input
+          id="code"
+          autoComplete="off"
+          autoCapitalize="none"
+          placeholder={create ? "e.g. green-door-42" : undefined}
+          value={form.houseCode}
+          onChange={(e) => setForm((f) => ({ ...f, houseCode: e.target.value }))}
+          required
+        />
+        {create && <p className="text-xs text-muted-foreground">At least 6 characters. You can change it later in Settings.</p>}
+      </div>
+      <NewPinFields pin={pin} pin2={pin2} onPin={setPin} onPin2={setPin2} label="Your 4-digit PIN" />
       {error && <p className="text-sm text-negative">{error}</p>}
       <Button type="submit" className="w-full" disabled={busy}>
-        {busy && <Loader2 className="animate-spin" />} Join
+        {busy && <Loader2 className="animate-spin" />} {create ? "Create house" : "Send join request"}
       </Button>
       {onBack && (
         <Button type="button" variant="ghost" className="w-full" onClick={onBack}>

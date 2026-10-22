@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { format } from "date-fns";
-import { Bell, Download, FileJson, FileText, KeyRound, LifeBuoy, Loader2, LogOut, Monitor, Moon, RotateCcw, Smartphone, Sun, Tags, Trash2, Upload } from "lucide-react";
+import { Bell, Download, FileJson, FileText, Eye, EyeOff, Copy, House, KeyRound, LifeBuoy, Loader2, LogOut, Monitor, Moon, RotateCcw, Smartphone, Sun, Tags, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useLookups } from "@/hooks/use-data";
@@ -168,6 +168,8 @@ export default function SettingsPage() {
 
       <CategoriesCard categories={categories} />
 
+      <HouseCodeCard />
+
       <ChangePinCard />
 
       <RecoveryCodeCard />
@@ -325,6 +327,91 @@ function CategoriesCard({ categories }: { categories: ReturnType<typeof useLooku
   );
 }
 
+function HouseCodeCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["house-code"],
+    queryFn: () => api<{ code: string | null; updatedBy: string | null; updatedAt: string | null }>("/api/house-code"),
+  });
+  const [show, setShow] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("/api/house-code", { body: { code } });
+      toast.success("House code changed. Share the new one with anyone who still needs to join.");
+      setEditing(false);
+      setCode("");
+      await qc.invalidateQueries({ queryKey: ["house-code"] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="rise">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <House className="size-4" /> House code
+        </CardTitle>
+        <CardDescription>
+          Share it with a new flatmate so they can ask to join. Someone already in the house still has to approve them.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+          <code className="flex-1 truncate font-mono text-base">
+            {data?.code ? (show ? data.code : "•".repeat(Math.min(data.code.length, 12))) : "…"}
+          </code>
+          <Button variant="ghost" size="icon" className="size-8" aria-label={show ? "Hide" : "Show"} onClick={() => setShow((v) => !v)}>
+            {show ? <EyeOff /> : <Eye />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label="Copy house code"
+            onClick={() => data?.code && navigator.clipboard.writeText(data.code).then(() => toast.success("Copied"))}
+          >
+            <Copy />
+          </Button>
+        </div>
+        {data?.updatedBy && data.updatedAt && (
+          <p className="text-xs text-muted-foreground">
+            Set by {data.updatedBy} · {format(new Date(data.updatedAt), "d MMM yyyy")}
+          </p>
+        )}
+        {editing ? (
+          <form onSubmit={save} className="flex gap-2">
+            <Input
+              autoFocus
+              autoComplete="off"
+              autoCapitalize="none"
+              placeholder="New house code (6+ characters)"
+              value={code}
+              maxLength={40}
+              onChange={(e) => setCode(e.target.value)}
+            />
+            <Button type="submit" disabled={busy || code.trim().length < 6}>
+              {busy && <Loader2 className="animate-spin" />} Save
+            </Button>
+          </form>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            Change house code
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RecoveryCodeCard() {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -402,7 +489,7 @@ function MembersCard({ users, meId }: { users: ReturnType<typeof useLookups>["us
       <CardHeader>
         <CardTitle className="text-base">Members</CardTitle>
         <CardDescription>
-          New flatmates join from the sign-in screen with the house code. If someone forgot their PIN and lost their
+          New flatmates ask to join with the house code, and any member can approve them. If someone forgot their PIN and lost their
           recovery code, you can approve a reset for them.
         </CardDescription>
       </CardHeader>
@@ -410,9 +497,15 @@ function MembersCard({ users, meId }: { users: ReturnType<typeof useLookups>["us
         {users.map((u) => (
           <div key={u.id} className="flex items-center gap-3 text-sm">
             <MemberAvatar name={u.name} color={u.color} className="size-8 text-xs" />
-            <span className="flex-1">
+            <span className="min-w-0 flex-1">
               {u.name} {u.id === meId && <span className="text-muted-foreground">(me)</span>}
-              {u.needsPin && <span className="block text-xs text-muted-foreground">needs new PIN</span>}
+              <span className="block text-xs text-muted-foreground">
+                {u.addedBy
+                  ? `Added by ${users.find((x) => x.id === u.addedBy)?.name ?? "a former member"}`
+                  : "Created the house"}{" "}
+                · {format(new Date(u.joinedAt), "d MMM yyyy")}
+                {u.needsPin && " · needs new PIN"}
+              </span>
             </span>
             {u.id !== meId &&
               (u.resetApproved ? (

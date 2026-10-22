@@ -14,7 +14,7 @@ export const POST = route<Ctx>(async (_req, ctx) => {
   return withTx(async (q) => {
     const [u] = await q<{ name: string }>(
       `update users set reset_approved_by = $2, reset_expires_at = now() + interval '24 hours'
-       where id = $1 returning name`,
+       where id = $1 and status = 'active' returning name`,
       [id, actorId],
     );
     if (!u) throw new HttpError(404, "Unknown member");

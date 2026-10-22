@@ -9,12 +9,13 @@ export const pinSchema = z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digi
 
 /** Verifies a member's PIN with lockout after repeated failures. Throws on failure. */
 export async function checkPin(userId: string, pin: string) {
-  const [u] = await query<{ pin_hash: string | null; failed_attempts: number; locked_until: Date | null }>(
-    "select pin_hash, failed_attempts, locked_until from users where id = $1",
+  const [u] = await query<{ pin_hash: string | null; failed_attempts: number; locked_until: Date | null; status: string }>(
+    "select pin_hash, failed_attempts, locked_until, status from users where id = $1",
     [userId],
   );
   if (!u) throw new HttpError(401, "Unknown member");
-  if (!u.pin_hash) throw new HttpError(400, "This account needs a new PIN. Use “Join / set PIN” with the house code.");
+  if (u.status !== "active") throw new HttpError(403, "Your join request is still waiting for a flatmate's approval.");
+  if (!u.pin_hash) throw new HttpError(400, "This account needs a new PIN. Tap “Forgot PIN?” to set one.");
   if (u.locked_until && new Date(u.locked_until) > new Date()) {
     const mins = Math.ceil((new Date(u.locked_until).getTime() - Date.now()) / 60000);
     throw new HttpError(429, `Too many wrong PINs. Try again in ${mins} min.`);
@@ -34,11 +35,23 @@ export async function checkPin(userId: string, pin: string) {
   throw new HttpError(401, `Wrong PIN. ${MAX_ATTEMPTS - r.failed_attempts} tries left.`);
 }
 
-/** Simple DB-backed limiter for house-code guesses (10 per 15 min per client). */
+export const houseCodeSchema = z
+  .string()
+  .trim()
+  .min(6, "House code must be at least 6 characters")
+  .max(40, "House code is too long");
+
+/** The current house code (set by whoever created the house; any member can change it). */
+export async function getHouseCode(): Promise<string | null> {
+  const [row] = await query<{ value: string }>("select value from settings where key = 'house_code'");
+  return row?.value ?? null;
+}
+
+/** Checks a house-code guess, with a DB-backed limiter (10 wrong guesses per 15 min per client). */
 export async function guardHouseCode(req: Request, code: string) {
   const key = clientKey(req);
   await assertNotLimited(key, 10);
-  const expected = process.env.HOUSE_CODE ?? "";
+  const expected = (await getHouseCode()) ?? "";
   const ok = expected.length > 0 && code.trim().toLowerCase() === expected.toLowerCase();
   if (!ok) {
     await recordFailure(key);

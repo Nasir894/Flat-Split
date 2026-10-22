@@ -3,7 +3,7 @@ import { after } from "next/server";
 import type { Query } from "./db";
 import { notifyOthers } from "./push";
 
-export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup";
+export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house";
 export type Action = "create" | "update" | "delete" | "restore" | "import";
 
 const URLS: Record<Entity, string> = {
@@ -13,6 +13,7 @@ const URLS: Record<Entity, string> = {
   category: "/settings",
   user: "/",
   backup: "/activity",
+  house: "/settings",
 };
 
 /**
@@ -28,6 +29,8 @@ export async function audit(
     actorId: string;
     actorName: string;
     summary: string;
+    /** Notification title; defaults to "<actor> <verb>". */
+    title?: string;
     before?: unknown;
     after?: unknown;
   },
@@ -48,7 +51,7 @@ export async function audit(
   const notify = () =>
     after(() =>
       notifyOthers(e.actorId, {
-        title: `${e.actorName} ${VERB[e.action]}`,
+        title: e.title ?? `${e.actorName} ${VERB[e.action]}`,
         body: e.summary,
         url: URLS[e.entity],
         tag: e.entityId ?? undefined,

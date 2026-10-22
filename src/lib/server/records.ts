@@ -100,7 +100,7 @@ async function categoryLabel(q: Query, id: string | null) {
 
 async function assertUsers(q: Query, ids: string[]) {
   const unique = [...new Set(ids)];
-  const [{ n }] = await q<{ n: number }>("select count(*)::int as n from users where id = any($1::uuid[])", [unique]);
+  const [{ n }] = await q<{ n: number }>("select count(*)::int as n from users where id = any($1::uuid[]) and status = 'active'", [unique]);
   if (n !== unique.length) throw new HttpError(400, "Unknown member selected");
 }
 

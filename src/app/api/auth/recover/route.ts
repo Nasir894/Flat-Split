@@ -32,12 +32,14 @@ export const POST = route(async (req) => {
     reset_approved_by: string | null;
     reset_expires_at: Date | null;
     approver: string | null;
+    status: string;
   }>(
-    `select u.name, u.recovery_hash, u.reset_approved_by, u.reset_expires_at, a.name as approver
+    `select u.name, u.status, u.recovery_hash, u.reset_approved_by, u.reset_expires_at, a.name as approver
      from users u left join users a on a.id = u.reset_approved_by where u.id = $1`,
     [d.userId],
   );
   if (!u) throw new HttpError(404, "Unknown member");
+  if (u.status !== "active") throw new HttpError(403, "This join request is still waiting for approval.");
 
   let method: string;
   if (d.recoveryCode) {

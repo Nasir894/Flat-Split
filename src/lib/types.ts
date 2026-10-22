@@ -1,6 +1,16 @@
 import type { RiceStatus } from "./rice";
 
-export type User = { id: string; name: string; color: string; createdAt: string; needsPin: boolean; resetApproved: boolean };
+export type User = {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  needsPin: boolean;
+  resetApproved: boolean;
+  addedBy: string | null;
+  joinedAt: string;
+};
+export type PendingMember = { id: string; name: string; color: string; createdAt: string };
 export type Category = { id: string; name: string; emoji: string; isDefault: boolean; deletedAt: string | null };
 export type Balance = { id: string; balance: number; paid: number; consumed: number };
 
@@ -29,6 +39,7 @@ export type RiceEntry = Meta & { userId: string; givenAt: string; note: string }
 export type Summary = {
   meId: string;
   users: User[];
+  pending: PendingMember[];
   categories: Category[];
   balances: Balance[];
   rice: RiceStatus;

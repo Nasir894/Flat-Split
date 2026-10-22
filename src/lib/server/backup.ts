@@ -9,7 +9,8 @@ import { audit, userName } from "./audit";
 
 export async function exportBackup() {
   const [users, categories, expenses, expenseShares, transfers, riceEntries, auditLog] = await Promise.all([
-    query(`select id, name, color, created_at as "createdAt" from users order by created_at`),
+    query(`select id, name, color, created_at as "createdAt", approved_by as "addedBy", approved_at as "approvedAt"
+           from users where status = 'active' order by created_at`),
     query(`select id, name, emoji, is_default as "isDefault", created_by as "createdBy", created_at as "createdAt",
                   deleted_by as "deletedBy", deleted_at as "deletedAt" from categories order by created_at`),
     query(`select id, payer_id as "payerId", amount::int8::float8 as amount, category_id as "categoryId", description,
@@ -58,7 +59,9 @@ const meta = {
 const backupSchema = z.object({
   app: z.literal("flat-split", { error: "This is not a Flat Split backup file" }),
   format: z.literal(1),
-  users: z.array(z.object({ id, name: z.string().min(1).max(40), color: z.string().max(20), createdAt: ts })),
+  users: z.array(
+    z.object({ id, name: z.string().min(1).max(40), color: z.string().max(20), createdAt: ts, addedBy: opt(id), approvedAt: opt(ts) }),
+  ),
   categories: z.array(
     z.object({
       id,
@@ -112,23 +115,31 @@ export async function importBackup(actorId: string, raw: unknown) {
     await q("select set_config('flatsplit.restore', 'on', true)");
 
     // Members: match by id, else by name (e.g. after a fresh deploy the same person signs up again).
+    // Pending join requests whose name matches a member in the backup are dropped (the backup wins).
+    await q("delete from users where status = 'pending' and lower(name) = any($1::text[])", [
+      b.users.map((u) => u.name.toLowerCase()),
+    ]);
     const existing = await q<{ id: string; name: string }>("select id, name from users");
     const byName = new Map(existing.map((u) => [u.name.toLowerCase(), u.id]));
     const ids = new Set(existing.map((u) => u.id));
     const map = new Map<string, string>();
+    const inserted: typeof b.users = [];
     for (const u of b.users) {
       const target = ids.has(u.id) ? u.id : (byName.get(u.name.toLowerCase()) ?? u.id);
       map.set(u.id, target);
       if (!ids.has(target)) {
-        await q("insert into users (id, name, color, created_at) values ($1, $2, $3, $4)", [
-          target,
-          u.name,
-          u.color,
-          u.createdAt,
-        ]);
+        await q(
+          "insert into users (id, name, color, created_at, approved_at, status) values ($1, $2, $3, $4, $5, 'active')",
+          [target, u.name, u.color, u.createdAt, u.approvedAt],
+        );
+        inserted.push(u);
       }
     }
     const m = (v: string | null) => (v ? (map.get(v) ?? v) : null);
+    // "Added by" for restored members, once everyone they reference exists.
+    for (const u of inserted) {
+      if (u.addedBy) await q("update users set approved_by = $2 where id = $1", [m(u.id), m(u.addedBy)]);
+    }
     const known = new Set([...ids, ...map.values()]);
     const check = (v: string | null) => {
       if (v && !known.has(v)) throw new HttpError(400, "Backup references a member that is not in the file");

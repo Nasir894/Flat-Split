@@ -16,14 +16,15 @@ Separate from money. When a cycle starts, everyone's owed count goes +1, and eac
 ## Security & history
 
 - Each member signs in with their own 4-digit PIN (scrypt, peppered with `SESSION_SECRET`). 5 wrong tries lock the account for 15 minutes. The app asks for the PIN again when reopened or after 2 minutes in the background.
-- New members join with the **house code** (`HOUSE_CODE`), and guesses are rate-limited.
+- **Creating the house:** the first person to open the app creates the house and chooses its **house code**. Any member can view, copy or change it in Settings, and changes are logged.
+- **Joining:** a newcomer enters the house code, their name and a PIN. That only sends a **join request**: everyone in the house is notified, and any member must approve it from the Home screen. The members list shows who added whom. House-code guesses are rate-limited.
 - **Forgot PIN:** on the sign-in screen, tap your name → "Forgot PIN?".
   - **With your recovery code:** enter it and choose a new PIN. Everyone gets a one-time code at sign-up, and can make a new one in Settings.
   - **Lost the code too:** any other flatmate taps **Settings → Members → Approve PIN reset**. For 24 hours you can then set a new PIN using the house code.
   - Every reset and approval is logged and notified to everyone. Recovery attempts are rate-limited.
 - Every write runs in a Postgres transaction together with its audit entry. Edits use version checks, so two people can't silently overwrite each other.
 - The `audit_log` table is append-only, and records can't be hard-deleted. Both are enforced by database triggers. Deleting only greys an entry out, and it can be restored.
-- JSON backups never contain PIN hashes. After a restore on a fresh database, members re-join with their old name + house code to set a new PIN.
+- JSON backups never contain PIN or recovery hashes. After a restore on a fresh database, a restored member taps their name and sets a new PIN once a flatmate approves the reset.
 
 ## Local development
 

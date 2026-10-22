@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/records";
 import { ExpenseForm } from "@/components/forms/expense-form";
 import { TransferForm, type TransferDraft } from "@/components/forms/transfer-form";
 import { RiceForm } from "@/components/forms/rice-form";
+import { JoinRequests } from "@/components/join-requests";
 
 export default function HomePage() {
   const { data } = useSummary();
@@ -35,6 +36,8 @@ export default function HomePage() {
 
   return (
     <div className="space-y-5">
+      <JoinRequests />
+
       <Card className="rise overflow-hidden border-0 bg-gradient-to-br from-teal-500 to-teal-700 text-white shadow-lg">
         <CardContent className="space-y-1 py-1">
           <p className="text-sm text-white/80">{mine >= 0 ? "You should get back" : "You owe the flat"}</p>

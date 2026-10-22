@@ -15,6 +15,21 @@ create unique index if not exists users_name_lower on users (lower(name));
 alter table users add column if not exists recovery_hash text;
 alter table users add column if not exists reset_approved_by uuid references users(id);
 alter table users add column if not exists reset_expires_at timestamptz;
+-- Joining needs approval: new members start 'pending' until an existing member approves them.
+alter table users add column if not exists status text not null default 'active';
+alter table users add column if not exists approved_by uuid references users(id);
+alter table users add column if not exists approved_at timestamptz;
+do $$ begin
+  alter table users add constraint users_status_check check (status in ('pending', 'active'));
+exception when duplicate_object then null; end $$;
+
+-- House-wide settings (e.g. the house code), editable from the app.
+create table if not exists settings (
+  key text primary key,
+  value text not null,
+  updated_by uuid references users(id),
+  updated_at timestamptz not null default now()
+);
 
 create table if not exists categories (
   id uuid primary key default gen_random_uuid(),
