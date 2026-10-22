@@ -1,10 +1,10 @@
 import { route, HttpError } from "@/lib/server/http";
-import { dashboardDigest, sendTelegram } from "@/lib/server/telegram";
+import { sendDigestIfDue } from "@/lib/server/telegram";
 
-// Called once a day by Vercel Cron (see vercel.json), which sends `Authorization: Bearer $CRON_SECRET`.
+// Hit every few minutes by an outside scheduler (and once a day by Vercel Cron as a backup), with
+// `Authorization: Bearer $CRON_SECRET`. Sends at most once a day, at the time chosen in Settings.
 export const GET = route(async (req) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) throw new HttpError(401, "Unauthorized");
-  const sent = await sendTelegram(await dashboardDigest());
-  return { ok: true, sent };
+  return sendDigestIfDue();
 });

@@ -196,30 +196,118 @@ export default function SettingsPage() {
   );
 }
 
+type TelegramStatus = { configured: boolean; time: string; lastSent: string | null; chats: { id: string; title: string }[] };
+
 function TelegramCard() {
-  const [busy, setBusy] = useState(false);
-  const send = async () => {
-    setBusy(true);
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["telegram"], queryFn: () => api<TelegramStatus>("/api/telegram") });
+  const [time, setTime] = useState<string>();
+  const [code, setCode] = useState<string>();
+  const [busy, setBusy] = useState<"send" | "time" | "link" | null>(null);
+
+  const run = async (kind: NonNullable<typeof busy>, fn: () => Promise<void>) => {
+    setBusy(kind);
     try {
-      await api("/api/telegram", { method: "POST" });
-      toast.success("Dashboard sent to Telegram");
+      await fn();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
+  const update = (body: unknown) =>
+    api<TelegramStatus>("/api/telegram", { method: "PATCH", body }).then((s) => qc.setQueryData(["telegram"], s));
+
+  const send = () =>
+    run("send", async () => {
+      const r = await api<{ sent: number }>("/api/telegram", { method: "POST" });
+      toast.success(`Dashboard sent to ${r.sent} chat${r.sent === 1 ? "" : "s"}`);
+    });
+  const saveTime = () =>
+    run("time", async () => {
+      await update({ time });
+      setTime(undefined);
+      toast.success(`Daily update set to ${time}`);
+    });
+  const link = () =>
+    run("link", async () => {
+      const r = await api<{ code: string }>("/api/telegram", { method: "PATCH", body: { linkCode: true } });
+      setCode(r.code);
+    });
+
+  const command = code && `/link@FlatSplitBot ${code}`;
+  const shownTime = time ?? data?.time ?? "21:00";
+
   return (
     <Card className="rise">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Send className="size-4" /> Telegram
         </CardTitle>
-        <CardDescription>The dashboard summary goes to Telegram every day at 9 PM. You can also send it now.</CardDescription>
+        <CardDescription>
+          The dashboard goes to your linked Telegram chats every day. Anyone there can tap “Latest update” or send /update for a
+          fresh one.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Button className="w-full" onClick={send} disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" /> : <Send />} Send to Telegram now
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="tg-time">Daily update time (Bangladesh)</Label>
+          <div className="flex gap-2">
+            <Input id="tg-time" type="time" value={shownTime} onChange={(e) => setTime(e.target.value)} className="flex-1" />
+            <Button variant="outline" onClick={saveTime} disabled={!time || time === data?.time || busy === "time"}>
+              {busy === "time" && <Loader2 className="animate-spin" />} Save
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Sends to</Label>
+          {data?.chats.length ? (
+            data.chats.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate">{c.title}</span>
+                {c.title !== "Set in environment" && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Stop sending to ${c.title}`}
+                    onClick={() => update({ removeChat: c.id }).catch((e) => toast.error((e as Error).message))}
+                  >
+                    <Trash2 />
+                  </Button>
+                )}
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-foreground/60">No chat linked yet.</p>
+          )}
+          {command ? (
+            <div className="space-y-1.5 rounded-xl border p-3 text-sm">
+              <p>Add @FlatSplitBot to your group, then send this there (valid for 15 minutes):</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 truncate rounded bg-foreground/10 px-2 py-1">{command}</code>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Copy"
+                  onClick={() => navigator.clipboard.writeText(command).then(() => toast.success("Copied"))}
+                >
+                  <Copy />
+                </Button>
+              </div>
+              <Button size="sm" variant="ghost" className="px-0" onClick={() => qc.invalidateQueries({ queryKey: ["telegram"] })}>
+                <RotateCcw /> I sent it, refresh
+              </Button>
+            </div>
+          ) : (
+            <Button variant="outline" className="w-full" onClick={link} disabled={busy === "link"}>
+              {busy === "link" && <Loader2 className="animate-spin" />} Link a group
+            </Button>
+          )}
+        </div>
+
+        <Button className="w-full" onClick={send} disabled={busy === "send" || !data?.chats.length}>
+          {busy === "send" ? <Loader2 className="animate-spin" /> : <Send />} Send update now
         </Button>
       </CardContent>
     </Card>
