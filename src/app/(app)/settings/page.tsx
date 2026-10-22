@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { format } from "date-fns";
-import { Bell, Download, FileJson, FileText, Eye, EyeOff, Copy, House, KeyRound, LifeBuoy, Loader2, LogOut, Monitor, Moon, RotateCcw, Smartphone, Sun, Tags, Trash2, Upload } from "lucide-react";
+import { Bell, Download, FileJson, FileText, Eye, EyeOff, Copy, House, KeyRound, LifeBuoy, Loader2, LogOut, Monitor, Moon, RotateCcw, Send, Smartphone, Sun, Tags, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useLookups } from "@/hooks/use-data";
@@ -134,6 +134,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {!isGuest && <TelegramCard />}
+
       {!standalone && (
         <Card className="rise">
           <CardHeader>
@@ -191,6 +193,36 @@ export default function SettingsPage() {
         <LogOut /> Sign out of this device
       </Button>
     </div>
+  );
+}
+
+function TelegramCard() {
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    setBusy(true);
+    try {
+      await api("/api/telegram", { method: "POST" });
+      toast.success("Dashboard sent to Telegram");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card className="rise">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Send className="size-4" /> Telegram
+        </CardTitle>
+        <CardDescription>The dashboard summary goes to Telegram every day at 9 PM. You can also send it now.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button className="w-full" onClick={send} disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : <Send />} Send to Telegram now
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
