@@ -203,13 +203,17 @@ export const webhookSecret = () => createHmac("sha256", env("SESSION_SECRET")).u
 
 /** Points the bot at this deployment and registers its commands. Needs a public https URL. */
 export async function registerWebhook(req: Request) {
-  if (!process.env.TELEGRAM_BOT_TOKEN) return;
+  botToken(); // fail loudly when the token isn't set on this deployment
   const host = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? new URL(req.url).host;
   if (/^(localhost|127\.|192\.168\.)/.test(host)) return;
+  const url = `https://${host}/api/telegram/webhook`;
+  const current = await tg<{ url: string }>("getWebhookInfo", {});
   await tg("setWebhook", {
-    url: `https://${host}/api/telegram/webhook`,
+    url,
     secret_token: webhookSecret(),
     allowed_updates: ["message", "callback_query"],
+    // On first connect, skip messages that piled up while nothing was listening (old /link tries).
+    drop_pending_updates: current.url !== url,
   });
   await tg("setMyCommands", {
     commands: [
