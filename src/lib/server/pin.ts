@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { query, type Query } from "./db";
+import { asSystem, query, setHouse, type Query } from "./db";
 import { HttpError } from "./http";
 import { LOCK_MINUTES, MAX_ATTEMPTS, hashPin, verifyPin } from "./auth";
 
@@ -41,22 +41,26 @@ export const houseCodeSchema = z
   .min(6, "House code must be at least 6 characters")
   .max(40, "House code is too long");
 
-/** The current house code (set by whoever created the house; any member can change it). */
-export async function getHouseCode(): Promise<string | null> {
-  const [row] = await query<{ value: string }>("select value from settings where key = 'house_code'");
-  return row?.value ?? null;
+/** The house whose code this is (searches every house), or null. */
+export async function houseByCode(code: string): Promise<string | null> {
+  const [h] = await asSystem(() => query<{ id: string }>("select id from houses where lower(code) = lower($1)", [code.trim()]));
+  return h?.id ?? null;
 }
 
-/** Checks a house-code guess, with a DB-backed limiter (10 wrong guesses per 15 min per client). */
-export async function guardHouseCode(req: Request, code: string) {
+/**
+ * Checks a house-code guess, with a DB-backed limiter (10 wrong guesses per 15 min per client).
+ * On success, this request now works in that house. With `houseId`, the code must be that house's.
+ */
+export async function guardHouseCode(req: Request, code: string, houseId?: string): Promise<string> {
   const key = clientKey(req);
   await assertNotLimited(key, 10);
-  const expected = (await getHouseCode()) ?? "";
-  const ok = expected.length > 0 && code.trim().toLowerCase() === expected.toLowerCase();
-  if (!ok) {
+  const found = code.trim() ? await houseByCode(code) : null;
+  if (!found || (houseId && found !== houseId)) {
     await recordFailure(key);
     throw new HttpError(401, "Wrong house code");
   }
+  setHouse(found);
+  return found;
 }
 
 export const clientKey = (req: Request) => req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";

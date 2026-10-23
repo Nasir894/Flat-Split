@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { HttpError } from "./http";
 import { env } from "./env";
-import { query } from "./db";
+import { asSystem, query, setHouse } from "./db";
 
 export type Role = "member" | "guest";
 
@@ -34,10 +34,18 @@ export async function verifyPin(pin: string, stored: string | null): Promise<boo
   return timingSafeEqual(actual, Buffer.from(hash, "base64"));
 }
 
+/** The house a member belongs to (searches every house, so only for sign-in and old sessions). */
+export async function houseOfUser(userId: string): Promise<string | null> {
+  const [u] = await asSystem(() => query<{ house_id: string }>("select house_id from users where id = $1", [userId]));
+  return u?.house_id ?? null;
+}
+
 export async function startSession(userId: string) {
-  // The role travels in the session so every request can be checked without a database lookup.
-  const [u] = await query<{ role: Role }>("select role from users where id = $1", [userId]);
-  const token = await new SignJWT({ role: u?.role ?? "member" })
+  // Role and house travel in the session so every request can be checked without a database lookup.
+  const [u] = await asSystem(() => query<{ role: Role; house_id: string }>("select role, house_id from users where id = $1", [userId]));
+  if (!u) throw new HttpError(401, "Unknown member");
+  setHouse(u.house_id);
+  const token = await new SignJWT({ role: u.role, hid: u.house_id })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
@@ -66,17 +74,23 @@ export async function endSession() {
   jar.delete(SIGNED_IN_HINT);
 }
 
-export async function sessionUser(): Promise<{ id: string; role: Role } | null> {
+/** The signed-in person, if any. Also points this request's database queries at their house. */
+export async function sessionUser(): Promise<{ id: string; role: Role; houseId: string } | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
+  let payload;
   try {
-    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
-    if (payload.typ === "pending" || !payload.sub) return null; // a pending token is never a real session
-    // Sessions from before roles existed belong to home sharers.
-    return { id: payload.sub, role: payload.role === "guest" ? "guest" : "member" };
+    ({ payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] }));
   } catch {
     return null;
   }
+  if (payload.typ === "pending" || !payload.sub) return null; // a pending token is never a real session
+  // Sessions from before houses existed carry no house: look it up.
+  const houseId = typeof payload.hid === "string" ? payload.hid : await houseOfUser(payload.sub);
+  if (!houseId) return null;
+  setHouse(houseId);
+  // Sessions from before roles existed belong to home sharers.
+  return { id: payload.sub, role: payload.role === "guest" ? "guest" : "member", houseId };
 }
 
 export async function sessionUserId(): Promise<string | null> {
@@ -117,15 +131,20 @@ export async function startPendingSession(userId: string) {
   });
 }
 
+/** This device's own join request, if any. Also points this request's queries at that house. */
 export async function pendingUserId(): Promise<string | null> {
   const token = (await cookies()).get(PENDING_COOKIE)?.value;
   if (!token) return null;
+  let payload;
   try {
-    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
-    return payload.typ === "pending" ? (payload.sub ?? null) : null;
+    ({ payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] }));
   } catch {
     return null;
   }
+  if (payload.typ !== "pending" || !payload.sub) return null;
+  const houseId = await houseOfUser(payload.sub);
+  if (houseId) setHouse(houseId);
+  return payload.sub;
 }
 
 export async function endPendingSession() {

@@ -49,10 +49,9 @@ export const transferInput = z
   })
   .refine((t) => t.fromUserId !== t.toUserId, "Sender and receiver must be different");
 
-export const RICE_TRACKER_ID = "00000000-0000-4000-8000-000000000001";
-
 export const riceInput = z.object({
-  trackerId: z.uuid().default(RICE_TRACKER_ID),
+  // Left out: the house's default tracker (Rice).
+  trackerId: z.uuid().optional(),
   userId: z.uuid(),
   givenAt: when,
   note: z.string().trim().max(200).default(""),
@@ -122,14 +121,17 @@ async function categoryLabel(q: Query, id: string | null) {
   return c ? `${c.emoji} ${c.name}` : "";
 }
 
-/** The tracker must exist, and the person must be one of its participants. */
-async function assertTracker(q: Query, trackerId: string, userId: string) {
-  const [t] = await q<{ member_ids: string[] | null }>(
-    "select member_ids from trackers where id = $1 and deleted_at is null",
-    [trackerId],
+/** The tracker must exist, and the person must be one of its participants. Returns its id. */
+async function assertTracker(q: Query, trackerId: string | undefined, userId: string): Promise<string> {
+  const [t] = await q<{ id: string; member_ids: string[] | null }>(
+    trackerId
+      ? "select id, member_ids from trackers where id = $1 and deleted_at is null"
+      : "select id, member_ids from trackers where is_default and deleted_at is null limit 1",
+    trackerId ? [trackerId] : [],
   );
   if (!t) throw new HttpError(400, "That tracker no longer exists");
   if (t.member_ids && !t.member_ids.includes(userId)) throw new HttpError(400, "That person isn't part of this tracker");
+  return t.id;
 }
 
 /** Home records may only involve home sharers. */
@@ -245,11 +247,11 @@ export async function createRecord(kind: RecordKind, actor: Actor, body: unknown
       requireHomeSharer(actor);
       const d = riceInput.parse(body);
       await assertHomeMembers(q, [d.userId]);
-      await assertTracker(q, d.trackerId, d.userId);
+      const trackerId = await assertTracker(q, d.trackerId, d.userId);
       [{ id }] = await q<{ id: string }>(
         `insert into rice_entries (user_id, given_at, note, created_by, tracker_id)
          values ($1, date_trunc('milliseconds', coalesce($2::timestamptz, now())), $3, $4, $5) returning id`,
-        [d.userId, d.givenAt ?? null, d.note, actor.id, d.trackerId],
+        [d.userId, d.givenAt ?? null, d.note, actor.id, trackerId],
       );
     }
     const row = await snapshot(q, kind, id);

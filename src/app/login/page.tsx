@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Home, Hourglass, Loader2, UserPlus } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { PinPad } from "@/components/pin-pad";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Logo } from "@/components/logo";
@@ -34,6 +34,14 @@ const rememberName = (name: string) => {
 const forgetName = () => {
   try {
     localStorage.removeItem(LAST_NAME_KEY);
+    localStorage.removeItem(HOUSE_CODE_KEY);
+  } catch {}
+};
+// Only asked for when the same name exists in more than one house; then remembered with the name.
+const HOUSE_CODE_KEY = "fs_house_code";
+const rememberHouseCode = (code: string) => {
+  try {
+    if (code.trim()) localStorage.setItem(HOUSE_CODE_KEY, code.trim());
   } catch {}
 };
 
@@ -49,7 +57,10 @@ export default function LoginPage() {
   });
   // `name` set = PIN step for that name; null = ask for the name.
   const [name, setName] = useState<string | null>(null);
-  const [chosenMode, setMode] = useState<"signin" | "join" | "recover">("signin");
+  const [chosenMode, setMode] = useState<"signin" | "join" | "create" | "recover">("signin");
+  // Asked for only when the name exists in more than one house.
+  const [houseCode, setHouseCode] = useState("");
+  const [needCode, setNeedCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // A freshly issued recovery code, and what to do once the user has saved it.
@@ -66,6 +77,11 @@ export default function LoginPage() {
       // localStorage is browser-only, so the remembered name is read after mount.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (last) setName(last);
+      const code = localStorage.getItem(HOUSE_CODE_KEY);
+      if (code) {
+        setHouseCode(code);
+        setNeedCode(true);
+      }
     } catch {}
     setBioHere(biometricEnabledHere());
   }, []);
@@ -102,10 +118,12 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/auth/login", { body: { name, pin } });
+      await api("/api/auth/login", { body: { name, pin, houseCode: needCode ? houseCode : undefined } });
       rememberName(name);
+      if (needCode) rememberHouseCode(houseCode);
       await enter();
     } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setNeedCode(true);
       setError((e as Error).message);
     } finally {
       setBusy(false);
@@ -137,7 +155,7 @@ export default function LoginPage() {
       ) : !data ? (
         <p className="h-6 text-sm text-muted-foreground">Connecting…</p>
       ) : mode === "create" ? (
-        <SignupForm create onDone={afterSignup} />
+        <SignupForm create first={!data.houseExists} onDone={afterSignup} onBack={data.houseExists ? back : undefined} />
       ) : mode === "waiting" ? (
         <WaitingForApproval
           name={waitingFor!}
@@ -163,6 +181,19 @@ export default function LoginPage() {
         <div className="rise flex flex-col items-center gap-4">
           <MemberAvatar name={name} color="#14b8a6" className="size-14 text-lg" />
           <p className="font-medium">Hi {name}, enter your PIN</p>
+          {needCode && (
+            <div className="w-full space-y-1.5">
+              <Label htmlFor="signin-code">House code</Label>
+              <Input
+                id="signin-code"
+                autoComplete="off"
+                autoCapitalize="none"
+                value={houseCode}
+                onChange={(e) => setHouseCode(e.target.value)}
+                placeholder="Your house's code"
+              />
+            </div>
+          )}
           {bioHere && (
             <div className="w-full">
               <BiometricButton purpose="login" autoStart onSuccess={bioLogin} onError={setError} />
@@ -177,6 +208,8 @@ export default function LoginPage() {
                 forgetName();
                 setName(null);
                 setError(null);
+                setHouseCode("");
+                setNeedCode(false);
               }}
             >
               Not {name}?
@@ -191,7 +224,7 @@ export default function LoginPage() {
           {/* Shown wherever passkeys work: built-in sensor, Windows Hello, or a phone via QR code. */}
           <BiometricButton purpose="login" autoStart={bioHere} onSuccess={bioLogin} onError={setError} />
           {error && !name && <p className="text-center text-sm text-negative">{error}</p>}
-          <NameStep onNext={(n) => (setError(null), setName(n))} onJoin={() => setMode("join")} />
+          <NameStep onNext={(n) => (setError(null), setName(n))} onJoin={() => setMode("join")} onCreate={() => setMode("create")} />
         </div>
       )}
 
@@ -207,7 +240,7 @@ export default function LoginPage() {
   );
 }
 
-function NameStep({ onNext, onJoin }: { onNext: (name: string) => void; onJoin: () => void }) {
+function NameStep({ onNext, onJoin, onCreate }: { onNext: (name: string) => void; onJoin: () => void; onCreate: () => void }) {
   const [value, setValue] = useState("");
   return (
     <form
@@ -235,6 +268,9 @@ function NameStep({ onNext, onJoin }: { onNext: (name: string) => void; onJoin: 
       </Button>
       <Button type="button" variant="ghost" className="w-full" onClick={onJoin}>
         <UserPlus /> New here? Ask to join
+      </Button>
+      <Button type="button" variant="ghost" className="-mt-2 w-full text-muted-foreground" onClick={onCreate}>
+        <Home /> Start a new house
       </Button>
     </form>
   );
@@ -350,13 +386,16 @@ function pinProblem(pin: string, pin2: string) {
   return null;
 }
 
-/** `create`: the very first person sets up the house and picks its code. Otherwise: request to join. */
+/** `create`: start a new house and pick its code (anyone can). Otherwise: request to join one. */
 function SignupForm({
   create,
+  first,
   onDone,
   onBack,
 }: {
   create?: boolean;
+  /** No house exists yet at all. */
+  first?: boolean;
   onDone: (r: SignupResult, name: string) => Promise<void>;
   onBack?: () => void;
 }) {
@@ -373,7 +412,7 @@ function SignupForm({
     if (problem) return;
     setBusy(true);
     try {
-      const r = await api<SignupResult>("/api/auth/signup", { body: { ...form, pin } });
+      const r = await api<SignupResult>("/api/auth/signup", { body: { ...form, pin, create: !!create } });
       await onDone(r, form.name.trim());
     } catch (err) {
       setError((err as Error).message);
@@ -387,10 +426,11 @@ function SignupForm({
       {create ? (
         <div className="space-y-1 text-center">
           <p className="flex items-center justify-center gap-2 font-semibold">
-            <Home className="size-4 text-primary" /> Create your house
+            <Home className="size-4 text-primary" /> {first ? "Create your house" : "Start a new house"}
           </p>
           <p className="text-sm text-muted-foreground">
-            You&apos;re the first one here. Choose a house code: flatmates need it to ask to join, and you approve them.
+            {first ? "You're the first one here. " : "A new house has its own members, money, chat and turns. "}
+            Choose a house code: flatmates need it to ask to join, and you approve them.
           </p>
         </div>
       ) : (
@@ -420,7 +460,9 @@ function SignupForm({
           onChange={(e) => setForm((f) => ({ ...f, houseCode: e.target.value }))}
           required
         />
-        {create && <p className="text-xs text-muted-foreground">At least 6 characters. You can change it later in Settings.</p>}
+        {create && (
+          <p className="text-xs text-muted-foreground">At least 6 characters, and different from other houses. You can change it later in Settings.</p>
+        )}
       </div>
       <NewPinFields pin={pin} pin2={pin2} onPin={setPin} onPin2={setPin2} label="Your 4-digit PIN" />
       {error && <p className="text-sm text-negative">{error}</p>}
@@ -449,6 +491,8 @@ function RecoverForm({
   // "code": my recovery code. "approved": a flatmate approved my reset; prove membership with the house code.
   const [method, setMethod] = useState<"code" | "approved">("code");
   const [secret, setSecret] = useState("");
+  const [houseCode, setHouseCode] = useState("");
+  const [needCode, setNeedCode] = useState(false);
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -465,11 +509,12 @@ function RecoverForm({
         body: {
           name,
           newPin: pin,
-          ...(method === "approved" ? { houseCode: secret } : { recoveryCode: secret }),
+          ...(method === "approved" ? { houseCode: secret } : { recoveryCode: secret, houseCode: needCode ? houseCode : undefined }),
         },
       });
       await onDone(r.recoveryCode, name.trim());
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) setNeedCode(true);
       setError((err as Error).message);
     } finally {
       setBusy(false);
@@ -519,6 +564,12 @@ function RecoverForm({
             Lost it too? Ask any flatmate to open <b>Settings → Members</b> and tap <b>Approve PIN reset</b> for you,
             then choose &ldquo;Flatmate approved&rdquo;.
           </p>
+          {needCode && (
+            <>
+              <Label htmlFor="r-code">House code</Label>
+              <Input id="r-code" autoComplete="off" autoCapitalize="none" value={houseCode} onChange={(e) => setHouseCode(e.target.value)} required />
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-2">

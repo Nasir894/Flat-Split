@@ -1,6 +1,6 @@
 import "server-only";
 import { after } from "next/server";
-import type { Query } from "./db";
+import { currentHouse, inHouse, type Query } from "./db";
 import { notifyOthers, notifyUsers } from "./push";
 
 export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house" | "tracker" | "tour";
@@ -55,8 +55,14 @@ export async function audit(
     ],
   );
   if (e.notify === false) return;
+  // Notifications go out after the response, so pin them to this house explicitly.
+  const houseId = currentHouse();
   const send = (payload: Parameters<typeof notifyOthers>[1]) =>
-    e.audience ? notifyUsers(e.audience.filter((id) => id !== e.actorId), payload) : notifyOthers(e.actorId, payload);
+    houseId
+      ? inHouse(houseId, () =>
+          e.audience ? notifyUsers(e.audience.filter((id) => id !== e.actorId), payload) : notifyOthers(e.actorId, payload),
+        )
+      : Promise.resolve();
   const notify = () =>
     after(() =>
       send({

@@ -1,16 +1,16 @@
 import { z } from "zod";
-import { query, withTx } from "@/lib/server/db";
-import { route } from "@/lib/server/http";
+import { currentHouse, query, withTx } from "@/lib/server/db";
+import { HttpError, route } from "@/lib/server/http";
 import { requireMember } from "@/lib/server/auth";
-import { houseCodeSchema } from "@/lib/server/pin";
+import { houseByCode, houseCodeSchema } from "@/lib/server/pin";
 import { audit, userName } from "@/lib/server/audit";
 
-// Joined members can see the house code (to share it) and change it. Changes are logged.
+// Joined members can see their house code (to share it) and change it. Changes are logged.
 export const GET = route(async () => {
   await requireMember();
   const [row] = await query(
-    `select s.value as code, s.updated_at as "updatedAt", u.name as "updatedBy"
-     from settings s left join users u on u.id = s.updated_by where s.key = 'house_code'`,
+    `select h.code, h.updated_at as "updatedAt", u.name as "updatedBy"
+     from houses h left join users u on u.id = h.updated_by`,
   );
   return row ?? { code: null, updatedAt: null, updatedBy: null };
 });
@@ -18,12 +18,11 @@ export const GET = route(async () => {
 export const POST = route(async (req) => {
   const actorId = await requireMember();
   const { code } = z.object({ code: houseCodeSchema }).parse(await req.json());
+  // Codes are unique across houses (a code is how people find a house to join).
+  const owner = await houseByCode(code);
+  if (owner && owner !== currentHouse()) throw new HttpError(409, "That code is already used by another house. Pick a different one.");
   return withTx(async (q) => {
-    await q(
-      `insert into settings (key, value, updated_by) values ('house_code', $1, $2)
-       on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
-      [code, actorId],
-    );
+    await q("update houses set code = $1, updated_by = $2, updated_at = now()", [code, actorId]);
     const actorName = await userName(q, actorId);
     await audit(q, {
       entity: "house",

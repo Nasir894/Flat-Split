@@ -1,7 +1,7 @@
 import { generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { z } from "zod";
-import { query } from "@/lib/server/db";
+import { asSystem, query } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
 import { requireUser, sessionUserId, startSession } from "@/lib/server/auth";
 import { assertNotLimited, clientKey, recordFailure } from "@/lib/server/pin";
@@ -35,7 +35,8 @@ export const POST = route(async (req) => {
   const { rpID, origin } = relyingParty(req);
   const expectedChallenge = await takeChallenge(purpose);
 
-  const [cred] = await query<{
+  // A passkey can belong to anyone in any house, so this lookup searches every house.
+  const [cred] = await asSystem(() => query<{
     id: string;
     user_id: string;
     public_key: string;
@@ -47,7 +48,7 @@ export const POST = route(async (req) => {
     `select p.id, p.user_id, p.public_key, p.counter::text as counter, p.transports, u.name, u.status
      from passkeys p join users u on u.id = p.user_id where p.id = $1`,
     [response.id],
-  );
+  ));
   if (!cred) {
     await recordFailure(limitKey);
     throw new HttpError(401, "This fingerprint/face isn't set up for Flat Split anymore. Use your PIN.");

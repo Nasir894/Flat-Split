@@ -10,7 +10,7 @@ create table if not exists users (
   locked_until timestamptz,
   created_at timestamptz not null default now()
 );
-create unique index if not exists users_name_lower on users (lower(name));
+-- Names are unique per house: see users_house_name_lower in the "Several houses" section below.
 -- PIN recovery: a one-time recovery code (hashed), or a reset approved by another flatmate.
 alter table users add column if not exists recovery_hash text;
 alter table users add column if not exists reset_approved_by uuid references users(id);
@@ -183,7 +183,9 @@ from (values
   ('Utilities', '💡'), ('Internet', '🌐'), ('Gas', '🔥'), ('Household', '🧴'),
   ('Rent', '🏠'), ('Other', '📦')
 ) as v(name, emoji)
-where not exists (select 1 from categories where is_default);
+-- Only for a database from before houses existed; new houses get their own defaults when they're made.
+where not exists (select 1 from categories where is_default)
+  and to_regclass('public.houses') is null and exists (select 1 from users);
 
 -- Transfers need the receiver's OK before they count: pending → approved / declined.
 alter table transfers add column if not exists status text not null default 'approved';
@@ -234,7 +236,8 @@ create table if not exists trackers (
   deleted_at timestamptz
 );
 insert into trackers (id, name, emoji, is_default, created_at)
-values ('00000000-0000-4000-8000-000000000001', 'Rice', '🍚', true, '2000-01-01')
+select '00000000-0000-4000-8000-000000000001'::uuid, 'Rice', '🍚', true, '2000-01-01'::timestamptz
+where to_regclass('public.houses') is null and exists (select 1 from users)
 on conflict (id) do nothing;
 alter table rice_entries add column if not exists tracker_id uuid not null
   default '00000000-0000-4000-8000-000000000001' references trackers(id);
@@ -293,3 +296,85 @@ alter table expense_shares add column if not exists adjust bigint not null defau
 do $$ begin
   alter table expense_shares add constraint expense_shares_mode_check check (mode in ('equal', 'extra', 'exact'));
 exception when duplicate_object then null; end $$;
+
+-- ---------- Several houses ----------
+-- Anyone can start a house. Each house has its own members, money, chat, turns, tours and settings.
+-- Row-level security keeps houses apart: for every request the app switches to the flat_app role
+-- and sets app.house_id, so a query can only see and write its own house's rows. With no house
+-- set, flat_app sees nothing (fails closed). Sign-in lookups that must search every house run as
+-- the owner role instead.
+create table if not exists houses (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  created_at timestamptz not null default now(),
+  updated_by uuid,
+  updated_at timestamptz
+);
+create unique index if not exists houses_code_lower on houses (lower(code));
+
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'flat_app') then create role flat_app nologin; end if;
+end $$;
+grant flat_app to current_user;
+grant usage on schema public to flat_app;
+grant select, insert, update, delete on all tables in schema public to flat_app;
+grant usage, select on all sequences in schema public to flat_app;
+alter default privileges in schema public grant select, insert, update, delete on tables to flat_app;
+alter default privileges in schema public grant usage, select on sequences to flat_app;
+
+do $$
+declare
+  t text;
+  first_house uuid;
+  tables text[] := array['users', 'settings', 'categories', 'expenses', 'expense_shares', 'transfers', 'rice_entries',
+    'audit_log', 'chat_messages', 'chat_reactions', 'chat_typing', 'trackers', 'tours', 'tour_participants', 'tour_plan_items'];
+begin
+  -- Everything from before houses existed becomes the first house, keeping its house code.
+  if not exists (select 1 from houses) and exists (select 1 from users) then
+    insert into houses (code, created_at)
+    values (coalesce((select value from settings where key = 'house_code'), 'house-' || substr(md5(random()::text), 1, 8)),
+            coalesce((select min(created_at) from users), now()))
+    returning id into first_house;
+  end if;
+  foreach t in array tables loop
+    if not exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = t and column_name = 'house_id') then
+      execute format('alter table %I add column house_id uuid references houses(id) on delete cascade', t);
+      if first_house is not null then
+        execute format('alter table %I disable trigger user', t); -- the audit log is append-only
+        execute format('update %I set house_id = %L', t, first_house);
+        execute format('alter table %I enable trigger user', t);
+      end if;
+      execute format('alter table %I alter column house_id set not null', t);
+      execute format($f$alter table %I alter column house_id set default nullif(current_setting('app.house_id', true), '')::uuid$f$, t);
+      execute format('create index if not exists %I on %I (house_id)', t || '_house', t);
+    end if;
+    execute format('alter table %I enable row level security', t);
+    execute format('drop policy if exists house_isolation on %I', t);
+    execute format($f$create policy house_isolation on %I
+      using (house_id = nullif(current_setting('app.house_id', true), '')::uuid)
+      with check (house_id = nullif(current_setting('app.house_id', true), '')::uuid)$f$, t);
+  end loop;
+end $$;
+
+-- A house can only see itself (its code).
+alter table houses enable row level security;
+drop policy if exists house_self on houses;
+create policy house_self on houses using (id = nullif(current_setting('app.house_id', true), '')::uuid);
+
+-- The house code now lives on the house.
+delete from settings where key = 'house_code';
+
+-- Settings and member names are per house.
+do $$ begin
+  if (select count(*) from information_schema.key_column_usage
+      where table_schema = 'public' and table_name = 'settings' and constraint_name = 'settings_pkey') = 1 then
+    alter table settings drop constraint settings_pkey;
+    alter table settings add primary key (house_id, key);
+  end if;
+end $$;
+drop index if exists users_name_lower;
+create unique index if not exists users_house_name_lower on users (house_id, lower(name));
+
+-- Each house has its own Rice tracker, so new turns always name their tracker.
+alter table rice_entries alter column tracker_id drop default;

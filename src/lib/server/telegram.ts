@@ -1,7 +1,7 @@
 import "server-only";
 import { createHmac, randomBytes } from "node:crypto";
 import { formatTaka, settlePlan } from "@/lib/money";
-import { query } from "./db";
+import { asSystem, currentHouse, query, setHouse } from "./db";
 import { env } from "./env";
 import { HttpError } from "./http";
 import { getSummary } from "./summary";
@@ -115,7 +115,7 @@ export const sendDigestTo = async (chatId: string | number, text?: string) =>
     reply_markup: UPDATE_BUTTON,
   });
 
-// ---------- house-wide Telegram settings (in the `settings` table) ----------
+// ---------- each house's Telegram settings (in its `settings` rows) ----------
 
 export type LinkedChat = { id: string; title: string };
 
@@ -127,19 +127,42 @@ async function getSetting(key: string) {
 async function setSetting(key: string, value: string, actorId: string | null = null) {
   await query(
     `insert into settings (key, value, updated_by) values ($1, $2, $3)
-     on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
+     on conflict (house_id, key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
     [key, value, actorId],
   );
 }
 
-/** Chats linked from Telegram with /link, plus any fixed ones in TELEGRAM_CHAT_ID. */
+const fixedChats = () => (process.env.TELEGRAM_CHAT_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+/** The oldest house: the fixed TELEGRAM_CHAT_ID chats (from before houses existed) belong to it. */
+const firstHouse = async () =>
+  (await asSystem(() => query<{ id: string }>("select id from houses order by created_at limit 1")))[0]?.id ?? null;
+
+/** This house's chats: linked from Telegram with /link, plus the fixed ones for the first house. */
 export async function telegramChats(): Promise<LinkedChat[]> {
   const linked: LinkedChat[] = JSON.parse((await getSetting("telegram_chats")) ?? "[]");
-  const fixed = (process.env.TELEGRAM_CHAT_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const fixed = fixedChats().length && currentHouse() === (await firstHouse()) ? fixedChats() : [];
   return [...linked, ...fixed.filter((id) => !linked.some((c) => c.id === id)).map((id) => ({ id, title: "Set in environment" }))];
 }
 
-const isAllowedChat = async (chatId: string) => (await telegramChats()).some((c) => c.id === chatId);
+/** Which house a Telegram chat is linked to (searches every house), or null. */
+async function houseForChat(chatId: string): Promise<string | null> {
+  const [row] = await asSystem(() =>
+    query<{ house_id: string }>(
+      "select house_id from settings where key = 'telegram_chats' and value::jsonb @> jsonb_build_array(jsonb_build_object('id', $1::text))",
+      [chatId],
+    ),
+  );
+  if (row) return row.house_id;
+  return fixedChats().includes(chatId) ? firstHouse() : null;
+}
+
+/** Points this request at the chat's house. False when the chat isn't linked to any house. */
+async function enterChatHouse(chatId: string) {
+  const houseId = await houseForChat(chatId);
+  if (houseId) setHouse(houseId);
+  return !!houseId;
+}
 
 export async function unlinkChat(chatId: string) {
   const linked: LinkedChat[] = JSON.parse((await getSetting("telegram_chats")) ?? "[]");
@@ -182,7 +205,7 @@ export async function sendDigestIfDue() {
   if (clock < (await getDigestTime())) return { sent: 0, reason: "not yet" };
   const claimed = await query(
     `insert into settings (key, value) values ('telegram_last_sent', $1)
-     on conflict (key) do update set value = excluded.value, updated_at = now() where settings.value <> excluded.value
+     on conflict (house_id, key) do update set value = excluded.value, updated_at = now() where settings.value <> excluded.value
      returning key`,
     [today],
   );
@@ -232,7 +255,7 @@ type Update = {
 export async function handleUpdate(u: Update) {
   if (u.callback_query) {
     const chatId = String(u.callback_query.message?.chat.id ?? "");
-    const ok = u.callback_query.data === "update" && chatId && (await isAllowedChat(chatId));
+    const ok = u.callback_query.data === "update" && chatId && (await enterChatHouse(chatId));
     await tg("answerCallbackQuery", { callback_query_id: u.callback_query.id, text: ok ? "Fetching…" : "This chat isn't linked" }).catch(
       () => {}, // only stops the button's spinner; still send the update
     );
@@ -247,10 +270,23 @@ export async function handleUpdate(u: Update) {
   const reply = (text: string) => tg("sendMessage", { chat_id: chatId, text });
 
   if (command === "link") {
-    const [code, expires] = ((await getSetting("telegram_link_code")) ?? "").split("|");
-    if (!arg || !code || arg.toUpperCase() !== code || Date.now() > Number(expires)) {
+    // Link codes are random and short-lived; find the house that issued this one.
+    const [issued] = arg
+      ? await asSystem(() =>
+          query<{ house_id: string; value: string }>(
+            "select house_id, value from settings where key = 'telegram_link_code' and split_part(value, '|', 1) = upper($1)",
+            [arg],
+          ),
+        )
+      : [];
+    if (!issued || Date.now() > Number(issued.value.split("|")[1])) {
       return reply("That code didn't work. Get a fresh one in Flat Split → Settings → Telegram → Link a group.");
     }
+    const other = await houseForChat(chatId);
+    if (other && other !== issued.house_id) {
+      return reply("This chat is already linked to another house. Send /unlink here first, then try again.");
+    }
+    setHouse(issued.house_id);
     await query("delete from settings where key = 'telegram_link_code'"); // one use only
     const linked: LinkedChat[] = JSON.parse((await getSetting("telegram_chats")) ?? "[]");
     const title = msg.chat.title ?? msg.chat.first_name ?? "Chat";
@@ -258,7 +294,7 @@ export async function handleUpdate(u: Update) {
     await reply(`✅ Linked! This chat now gets the Flat Split dashboard every day at ${await getDigestTime()} (Bangladesh time).`);
     return sendDigestTo(chatId);
   }
-  if (!(await isAllowedChat(chatId))) {
+  if (!(await enterChatHouse(chatId))) {
     return reply("Hi! To get Flat Split updates here, open Flat Split → Settings → Telegram → Link a group, then send the /link command it shows.");
   }
   if (command === "update" || command === "start") return sendDigestTo(chatId);

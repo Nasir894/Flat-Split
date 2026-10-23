@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { runScoped } from "@/lib/server/db";
 import { handleUpdate, webhookSecret } from "@/lib/server/telegram";
 
 // Telegram calls this for /link, /update and the "Latest update" button. Always answer 200 so
@@ -8,7 +9,8 @@ export async function POST(req: Request) {
   const want = Buffer.from(webhookSecret());
   if (got.length !== want.length || !timingSafeEqual(got, want)) return new Response("Unauthorized", { status: 401 });
   try {
-    await handleUpdate(await req.json());
+    const update = await req.json();
+    await runScoped(() => handleUpdate(update)); // the chat decides which house this is for
   } catch (err) {
     console.error("telegram webhook", err);
   }

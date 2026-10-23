@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { query, withTx } from "@/lib/server/db";
 import { HttpError, route } from "@/lib/server/http";
-import { hashPin, startSession, verifyPin } from "@/lib/server/auth";
+import { hashPin, houseOfUser, startSession, verifyPin } from "@/lib/server/auth";
 import { audit } from "@/lib/server/audit";
 import { memberIdByName } from "@/lib/server/members";
 import {
@@ -24,7 +24,7 @@ const body = z.object({
 // Forgot PIN: either the member's recovery code, or a reset another flatmate approved (+ house code).
 export const POST = route(async (req) => {
   const d = body.parse(await req.json());
-  const userId = await memberIdByName(req, d.name);
+  const userId = await memberIdByName(req, d.name, d.houseCode);
   const limitKey = `recover:${userId}:${clientKey(req)}`;
   await assertNotLimited(limitKey, 5);
 
@@ -53,7 +53,7 @@ export const POST = route(async (req) => {
   } else {
     const approved = u.reset_approved_by && u.reset_expires_at && new Date(u.reset_expires_at) > new Date();
     if (!approved) throw new HttpError(403, "Enter your recovery code, or ask a flatmate to approve a PIN reset.");
-    await guardHouseCode(req, d.houseCode ?? "");
+    await guardHouseCode(req, d.houseCode ?? "", (await houseOfUser(userId)) ?? undefined);
     method = `approved by ${u.approver}`;
   }
 

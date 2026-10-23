@@ -29,7 +29,11 @@ export async function notifyOthers(actorId: string, payload: PushPayload) {
 /** Sends a push only to the given members' devices (e.g. the author of a message someone reacted to). */
 export async function notifyUsers(userIds: string[], payload: PushPayload) {
   if (!configure() || !userIds.length) return;
-  const subs = await query<Sub>("select endpoint, p256dh, auth from push_subscriptions where user_id = any($1::uuid[])", [userIds]);
+  // Joined to users so only members of this house can be notified.
+  const subs = await query<Sub>(
+    "select s.endpoint, s.p256dh, s.auth from push_subscriptions s join users u on u.id = s.user_id where s.user_id = any($1::uuid[])",
+    [userIds],
+  );
   await sendAll(subs, payload);
 }
 
