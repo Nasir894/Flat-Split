@@ -75,7 +75,12 @@ function HomePage() {
             {mine > 0 ? "Credit" : mine < 0 ? "Due" : "Settled"}
           </span>
         </div>
-        <Amount poisha={Math.abs(mine)} className="mt-1 block text-[2.9rem] leading-tight font-bold" />
+        {/* Signed and coloured so it is clear at a glance: − you owe, + you get back. */}
+        <Amount
+          poisha={mine}
+          sign
+          className={cn("mt-1 block text-[2.9rem] leading-tight font-bold", mine > 0 && "text-positive", mine < 0 && "text-negative")}
+        />
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Link href="/chat" className="glass flex items-center gap-2.5 rounded-2xl p-2.5 transition active:scale-[0.98]">
             <span className="relative flex size-9 items-center justify-center rounded-full bg-foreground/10">

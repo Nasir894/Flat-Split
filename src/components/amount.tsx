@@ -10,7 +10,7 @@ export function Amount({ poisha, className, sign }: { poisha: number; className?
   const prefix = poisha < 0 ? "-" : sign && poisha > 0 ? "+" : "";
   return (
     <span className={cn("tabular tracking-tight", className)}>
-      {prefix}৳{whole.format(taka)}
+      {prefix && <span className="mr-0.5">{prefix === "-" ? "−" : "+"}</span>}৳{whole.format(taka)}
       <span className="opacity-35">.{cents}</span>
     </span>
   );
