@@ -270,6 +270,15 @@ function TelegramCard() {
               {busy === "time" && <Loader2 className="animate-spin" />} Save
             </Button>
           </div>
+          {/* Spelled out with AM/PM: phones show the picker in 24h or 12h, which is easy to mix up. */}
+          <p className="text-xs text-muted-foreground">
+            Sends every day at {format(new Date(`2000-01-01T${shownTime}`), "h:mm a")} ·{" "}
+            {data?.lastSent === "failed"
+              ? "the last try failed, retrying"
+              : data?.lastSent
+                ? `last sent ${format(new Date(`${data.lastSent}T12:00`), "d MMM")}`
+                : "not sent automatically yet"}
+          </p>
         </div>
 
         <div className="space-y-2">

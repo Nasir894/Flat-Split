@@ -1,0 +1,28 @@
+# Checks every 10 minutes whether any house's daily Telegram update is due. The app decides: it sends
+# each house's update once a day, at the time chosen in Settings → Telegram. Vercel's free plan only
+# allows one fixed daily cron, so this is what makes the chosen time work.
+#
+# Needs the repository secret CRON_SECRET (GitHub → Settings → Secrets and variables → Actions),
+# with the same value as CRON_SECRET in Vercel's environment variables.
+name: Telegram daily update
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send updates that are due
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL || 'https://flat-split-ten.vercel.app' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Add the CRON_SECRET repository secret (same value as in Vercel)."
+            exit 1
+          fi
+          curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/daily-digest"
