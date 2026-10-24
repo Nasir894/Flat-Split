@@ -3,7 +3,7 @@ import { query } from "./db";
 
 // Rows that belong to the home fund: home records, plus everything from tours once they're closed
 // (an active tour is kept separate until it's closed).
-const IN_HOME_FUND = (alias: string) =>
+export const IN_HOME_FUND = (alias: string) =>
   `(${alias}.tour_id is null or exists (select 1 from tours tr where tr.id = ${alias}.tour_id and tr.status = 'closed'))`;
 
 export type Balance = { id: string; balance: number; paid: number; consumed: number; planBalance: number };

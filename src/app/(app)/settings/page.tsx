@@ -13,7 +13,7 @@ import { CACHE_KEY } from "@/components/providers";
 import { PushToggle, currentSubscription } from "@/components/push-toggle";
 import { UserAvatar } from "@/components/member-avatar";
 import { RecoveryCodeDialog } from "@/components/recovery-code-dialog";
-import { BiometricCard } from "@/components/biometric-card";
+import { DeviceLockCard } from "@/components/app-lock-card";
 import { ProfileCard } from "@/components/profile-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -191,7 +191,7 @@ export default function SettingsPage() {
 
       {!isGuest && <CategoriesCard categories={categories} />}
 
-      <BiometricCard />
+      <DeviceLockCard />
 
       {!isGuest && <HouseCodeCard />}
 

@@ -276,6 +276,9 @@ export async function createRecord(kind: RecordKind, actor: Actor, body: unknown
       summary: await describe(q, kind, row),
       after: row,
       audience: tour?.participants,
+      // The receiver can confirm or decline straight from the phone notification.
+      pushAction:
+        kind === "transfer" && row.status === "pending" ? { category: "transfer", id, forUserId: row.toUserId } : undefined,
     });
     return row;
   });

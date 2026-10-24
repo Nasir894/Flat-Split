@@ -2,6 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { currentHouse, inHouse, type Query } from "./db";
 import { notifyOthers, notifyUsers } from "./push";
+import type { PushAction } from "./devices";
 
 export type Entity = "expense" | "transfer" | "rice" | "category" | "user" | "backup" | "house" | "tracker" | "tour";
 export type Action = "create" | "update" | "delete" | "restore" | "import" | "approve" | "decline" | "start" | "close";
@@ -37,6 +38,8 @@ export async function audit(
     notify?: boolean;
     /** Notify exactly these people (e.g. a tour's participants) instead of all home sharers. */
     audience?: string[];
+    /** Buttons on the phone notification (confirm a payment, approve a join request). */
+    pushAction?: PushAction;
     before?: unknown;
     after?: unknown;
   },
@@ -72,6 +75,7 @@ export async function audit(
         tag: e.entityId ? `${e.entity}-${e.entityId}` : undefined,
         kind: e.action,
         entity: e.entity,
+        action: e.pushAction,
       }).catch((err) => console.error("notify failed", err)),
     );
   if (q.onCommit) q.onCommit(notify);

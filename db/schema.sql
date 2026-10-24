@@ -378,3 +378,25 @@ create unique index if not exists users_house_name_lower on users (house_id, low
 
 -- Each house has its own Rice tracker, so new turns always name their tracker.
 alter table rice_entries alter column tracker_id drop default;
+
+-- ---------- Phone app ----------
+-- Each signed-in phone running the Android app: where to send its push notifications, and the hash
+-- of its device key. The key only allows the few things notification buttons do (confirm a payment,
+-- answer a join request, reply in chat); signing out on the phone deletes the row.
+create table if not exists app_devices (
+  id uuid primary key default gen_random_uuid(),
+  house_id uuid not null default nullif(current_setting('app.house_id', true), '')::uuid references houses(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
+  push_token text,
+  key_hash text not null unique,
+  created_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now()
+);
+create unique index if not exists app_devices_push_token on app_devices (push_token) where push_token is not null;
+create index if not exists app_devices_user on app_devices (user_id);
+alter table app_devices enable row level security;
+drop policy if exists house_isolation on app_devices;
+create policy house_isolation on app_devices
+  using (house_id = nullif(current_setting('app.house_id', true), '')::uuid)
+  with check (house_id = nullif(current_setting('app.house_id', true), '')::uuid);
+grant select, insert, update, delete on app_devices to flat_app;

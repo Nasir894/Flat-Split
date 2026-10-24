@@ -53,6 +53,7 @@ export const POST = route(async (req) => {
       actorName: d.name,
       title: "👋 New join request",
       summary: `${d.name} wants to join the house. Open Flat Split to approve or decline.`,
+      pushAction: { category: "join", id: u.id },
     });
     return { id: u.id, recoveryCode: await rotateRecoveryCode(q, u.id) };
   });
