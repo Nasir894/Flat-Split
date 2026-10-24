@@ -17,6 +17,10 @@ export function markUnlocked() {
   } catch {}
 }
 
+// The Android app sets this before the page loads when it guards the app with the phone's own
+// fingerprint/face lock; then this PIN screen would only be a second lock.
+const nativeLock = () => typeof window !== "undefined" && (window as { FlatSplitNativeLock?: boolean }).FlatSplitNativeLock === true;
+
 function isUnlocked() {
   try {
     return sessionStorage.getItem(KEY) !== null;
@@ -34,7 +38,8 @@ export function AppLock({ me, children }: { me?: User; children: React.ReactNode
   useEffect(() => {
     // sessionStorage only exists in the browser, so the initial lock state is read after mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLocked(!isUnlocked());
+    setLocked(!nativeLock() && !isUnlocked());
+    if (nativeLock()) return;
     let hiddenAt = 0;
     const onVis = () => {
       if (document.visibilityState === "hidden") hiddenAt = Date.now();
