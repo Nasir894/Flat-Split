@@ -84,7 +84,7 @@ export async function sessionUser(): Promise<{ id: string; role: Role; houseId: 
   } catch {
     return null;
   }
-  if (payload.typ === "pending" || !payload.sub) return null; // a pending token is never a real session
+  if (payload.typ || !payload.sub) return null; // pending / widget tokens are never a real session
   // Sessions from before houses existed carry no house: look it up.
   const houseId = typeof payload.hid === "string" ? payload.hid : await houseOfUser(payload.sub);
   if (!houseId) return null;
@@ -102,6 +102,34 @@ export async function requireSession() {
   const u = await sessionUser();
   if (!u) throw new HttpError(401, "Please sign in");
   return u;
+}
+
+// Home-screen widget key: given to the companion phone app once its owner is signed in. It can only
+// read that person's balance (GET /api/widget), never sign in or change anything.
+const WIDGET_DAYS = 400;
+
+export async function issueWidgetToken(userId: string, houseId: string) {
+  return new SignJWT({ typ: "widget", hid: houseId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(userId)
+    .setIssuedAt()
+    .setExpirationTime(`${WIDGET_DAYS}d`)
+    .sign(key());
+}
+
+/** The member a widget key belongs to; also points this request at their house. */
+export async function widgetUser(req: Request): Promise<string> {
+  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  if (!token) throw new HttpError(401, "Missing widget key");
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] }));
+  } catch {
+    throw new HttpError(401, "Widget key expired. Open the Flat Split app once to renew it.");
+  }
+  if (payload.typ !== "widget" || !payload.sub || typeof payload.hid !== "string") throw new HttpError(401, "Not a widget key");
+  setHouse(payload.hid);
+  return payload.sub;
 }
 
 /** Home sharers only: guests can only use the tour section. */
